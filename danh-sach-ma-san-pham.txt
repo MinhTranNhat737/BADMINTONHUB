@@ -1,0 +1,130 @@
+================================================================================
+                    DANH SÁCH MÃ SẢN PHẨM — BADMINTONHUB
+                       Tổng: 82 bản ghi | 30 SKU duy nhất
+================================================================================
+
+ STT | Mã SKU       | Tên sản phẩm                      | Danh mục      | Kho            | Giá nhập (VND)
+-----+--------------+-----------------------------------+---------------+----------------+---------------
+
+  ── VỢT CẦU LÔNG ─────────────────────────────────────────────────────────────
+   1 | YNX-AX88D    | Vợt Yonex Astrox 88D Pro          | Vợt cầu lông  | Kho Cầu Giấy   | 3,200,000
+   2 | YNX-AX88D    | Vợt Yonex Astrox 88D Pro          | Vợt cầu lông  | Kho Thanh Xuân  | 3,200,000
+   3 | YNX-AX88D    | Vợt Yonex Astrox 88D Pro          | Vợt cầu lông  | Kho Long Biên   | 3,200,000
+   4 | VCT-TK99     | Vợt Victor Thruster K 9900        | Vợt cầu lông  | Kho Cầu Giấy   | 2,700,000
+   5 | VCT-TK99     | Vợt Victor Thruster K 9900        | Vợt cầu lông  | Kho Thanh Xuân  | 2,700,000
+   6 | VCT-TK99     | Vợt Victor Thruster K 9900        | Vợt cầu lông  | Kho Long Biên   | 2,700,000
+   7 | LN-N99       | Vợt Li-Ning N99                   | Vợt cầu lông  | Kho Cầu Giấy   | 2,500,000
+   8 | LN-N99       | Vợt Li-Ning N99                   | Vợt cầu lông  | Kho Thanh Xuân  | 2,500,000
+   9 | LN-N99       | Vợt Li-Ning N99                   | Vợt cầu lông  | Kho Long Biên   | 2,500,000
+  10 | YNX-AX99P    | Vợt Yonex Astrox 99 Pro           | Vợt cầu lông  | Kho Cầu Giấy   | 3,500,000
+  11 | YNX-AX99P    | Vợt Yonex Astrox 99 Pro           | Vợt cầu lông  | Kho Thanh Xuân  | 3,500,000
+  12 | YNX-AX99P    | Vợt Yonex Astrox 99 Pro           | Vợt cầu lông  | Kho Long Biên   | 3,500,000
+  13 | YNX-NF700    | Vợt Yonex Nanoflare 700           | Vợt cầu lông  | Kho Cầu Giấy   | 2,900,000
+  14 | YNX-NF700    | Vợt Yonex Nanoflare 700           | Vợt cầu lông  | Kho Thanh Xuân  | 2,900,000
+  15 | VCT-ARS90K   | Vợt Victor Auraspeed 90K          | Vợt cầu lông  | Kho Long Biên   | 2,600,000
+  16 | VCT-ARS90K   | Vợt Victor Auraspeed 90K          | Vợt cầu lông  | Kho Cầu Giấy   | 2,600,000
+  17 | LN-AXF99     | Vợt Li-Ning Axforce 99            | Vợt cầu lông  | Kho Thanh Xuân  | 2,800,000
+  18 | LN-AXF99     | Vợt Li-Ning Axforce 99            | Vợt cầu lông  | Kho Long Biên   | 2,800,000
+  19 | YNX-AX77     | Vợt Yonex Astrox 77 Pro           | Vợt cầu lông  | Kho Cầu Giấy   | 3,000,000
+  20 | YNX-AX77     | Vợt Yonex Astrox 77 Pro           | Vợt cầu lông  | Kho Long Biên   | 3,000,000
+
+  ── GIÀY CẦU LÔNG ────────────────────────────────────────────────────────────
+  21 | YNX-PC65Z    | Giày Yonex Power Cushion 65Z3     | Giày           | Kho Thanh Xuân  | 2,300,000
+  22 | YNX-PC65Z    | Giày Yonex Power Cushion 65Z3     | Giày           | Kho Cầu Giấy   | 2,300,000
+  23 | YNX-PC65Z    | Giày Yonex Power Cushion 65Z3     | Giày           | Kho Long Biên   | 2,300,000
+  24 | YNX-PCAZ     | Giày Yonex Power Cushion Aerus Z  | Giày           | Kho Cầu Giấy   | 2,800,000
+  25 | YNX-PCAZ     | Giày Yonex Power Cushion Aerus Z  | Giày           | Kho Thanh Xuân  | 2,800,000
+  26 | YNX-PCAZ     | Giày Yonex Power Cushion Aerus Z  | Giày           | Kho Long Biên   | 2,800,000
+  27 | VCT-A922     | Giày Victor A922                  | Giày           | Kho Cầu Giấy   | 1,800,000
+  28 | VCT-A922     | Giày Victor A922                  | Giày           | Kho Thanh Xuân  | 1,800,000
+  29 | VCT-A922     | Giày Victor A922                  | Giày           | Kho Long Biên   | 1,800,000
+  30 | LN-AYAR009   | Giày Li-Ning Saga Pro             | Giày           | Kho Thanh Xuân  | 2,200,000
+  31 | LN-AYAR009   | Giày Li-Ning Saga Pro             | Giày           | Kho Long Biên   | 2,200,000
+
+  ── QUẢ CẦU ──────────────────────────────────────────────────────────────────
+  32 | YNX-AS50     | Cầu lông Yonex Aerosensa 50       | Quả cầu        | Kho Cầu Giấy   |   450,000
+  33 | YNX-AS50     | Cầu lông Yonex Aerosensa 50       | Quả cầu        | Kho Thanh Xuân  |   450,000
+  34 | YNX-AS50     | Cầu lông Yonex Aerosensa 50       | Quả cầu        | Kho Long Biên   |   450,000
+  35 | YNX-AS30     | Cầu lông Yonex Aerosensa 30       | Quả cầu        | Kho Cầu Giấy   |   350,000
+  36 | YNX-AS30     | Cầu lông Yonex Aerosensa 30       | Quả cầu        | Kho Thanh Xuân  |   350,000
+  37 | YNX-AS30     | Cầu lông Yonex Aerosensa 30       | Quả cầu        | Kho Long Biên   |   350,000
+  38 | VCT-GD       | Cầu lông Victor Gold              | Quả cầu        | Kho Cầu Giấy   |   380,000
+  39 | VCT-GD       | Cầu lông Victor Gold              | Quả cầu        | Kho Long Biên   |   380,000
+
+  ── PHỤ KIỆN ─────────────────────────────────────────────────────────────────
+  40 | YNX-BG65     | Cước Yonex BG65                   | Phụ kiện       | Kho Long Biên   |    85,000
+  41 | YNX-BG65     | Cước Yonex BG65                   | Phụ kiện       | Kho Cầu Giấy   |    85,000
+  42 | YNX-BG65     | Cước Yonex BG65                   | Phụ kiện       | Kho Thanh Xuân  |    85,000
+  43 | YNX-BG80     | Cước Yonex BG80                   | Phụ kiện       | Kho Cầu Giấy   |    95,000
+  44 | YNX-BG80     | Cước Yonex BG80                   | Phụ kiện       | Kho Thanh Xuân  |    95,000
+  45 | YNX-BG80     | Cước Yonex BG80                   | Phụ kiện       | Kho Long Biên   |    95,000
+  46 | YNX-AC102    | Quấn cán Yonex AC102EX            | Phụ kiện       | Kho Cầu Giấy   |    25,000
+  47 | YNX-AC102    | Quấn cán Yonex AC102EX            | Phụ kiện       | Kho Thanh Xuân  |    25,000
+  48 | YNX-AC102    | Quấn cán Yonex AC102EX            | Phụ kiện       | Kho Long Biên   |    25,000
+  49 | VCT-GR262    | Quấn cán Victor GR262             | Phụ kiện       | Kho Cầu Giấy   |    20,000
+  50 | VCT-GR262    | Quấn cán Victor GR262             | Phụ kiện       | Kho Long Biên   |    20,000
+  51 | YNX-EXBQ     | Bao vợt Yonex Expert BAG          | Phụ kiện       | Kho Cầu Giấy   |   350,000
+  52 | YNX-EXBQ     | Bao vợt Yonex Expert BAG          | Phụ kiện       | Kho Thanh Xuân  |   350,000
+  69 | YNX-SK155    | Tất Yonex 19155 (3 đôi)           | Phụ kiện       | Kho Cầu Giấy   |   120,000
+  70 | YNX-SK155    | Tất Yonex 19155 (3 đôi)           | Phụ kiện       | Kho Thanh Xuân  |   120,000
+  71 | YNX-SK155    | Tất Yonex 19155 (3 đôi)           | Phụ kiện       | Kho Long Biên   |   120,000
+  72 | YNX-WB01     | Băng mồ hôi tay Yonex AC490       | Phụ kiện       | Kho Cầu Giấy   |    75,000
+  73 | YNX-WB01     | Băng mồ hôi tay Yonex AC490       | Phụ kiện       | Kho Thanh Xuân  |    75,000
+  74 | YNX-WB01     | Băng mồ hôi tay Yonex AC490       | Phụ kiện       | Kho Long Biên   |    75,000
+  75 | YNX-HB02     | Băng đầu Yonex AC258              | Phụ kiện       | Kho Cầu Giấy   |    90,000
+  76 | YNX-HB02     | Băng đầu Yonex AC258              | Phụ kiện       | Kho Long Biên   |    90,000
+  77 | YNX-BTL01    | Bình nước Yonex Sport 750ml        | Phụ kiện       | Kho Cầu Giấy   |   180,000
+  78 | YNX-BTL01    | Bình nước Yonex Sport 750ml        | Phụ kiện       | Kho Thanh Xuân  |   180,000
+  79 | YNX-BTL01    | Bình nước Yonex Sport 750ml        | Phụ kiện       | Kho Long Biên   |   180,000
+  80 | GNR-GRIP5    | Keo dán grip (5 cuộn)             | Phụ kiện       | Kho Cầu Giấy   |    45,000
+  81 | GNR-GRIP5    | Keo dán grip (5 cuộn)             | Phụ kiện       | Kho Thanh Xuân  |    45,000
+  82 | GNR-GRIP5    | Keo dán grip (5 cuộn)             | Phụ kiện       | Kho Long Biên   |    45,000
+
+  ── TÚI VỢT ─────────────────────────────────────────────────────────────────
+  53 | LNI-AB59     | Túi vợt Lining ABJT059            | Túi vợt        | Kho Thanh Xuân  |   620,000
+  54 | LNI-AB59     | Túi vợt Lining ABJT059            | Túi vợt        | Kho Cầu Giấy   |   620,000
+  55 | YNX-BA26     | Túi vợt Yonex BA26 Pro            | Túi vợt        | Kho Cầu Giấy   | 1,200,000
+  56 | YNX-BA26     | Túi vợt Yonex BA26 Pro            | Túi vợt        | Kho Thanh Xuân  | 1,200,000
+  57 | YNX-BA26     | Túi vợt Yonex BA26 Pro            | Túi vợt        | Kho Long Biên   | 1,200,000
+  58 | VCT-BR9213   | Túi vợt Victor BR9213             | Túi vợt        | Kho Cầu Giấy   |   950,000
+  59 | VCT-BR9213   | Túi vợt Victor BR9213             | Túi vợt        | Kho Long Biên   |   950,000
+
+  ── QUẦN ÁO ──────────────────────────────────────────────────────────────────
+  60 | YNX-TS2206   | Áo Yonex Game Shirt 2206          | Quần áo        | Kho Cầu Giấy   |   450,000
+  61 | YNX-TS2206   | Áo Yonex Game Shirt 2206          | Quần áo        | Kho Thanh Xuân  |   450,000
+  62 | YNX-TS2206   | Áo Yonex Game Shirt 2206          | Quần áo        | Kho Long Biên   |   450,000
+  63 | VCT-TS201    | Áo Victor Tournament T-201        | Quần áo        | Kho Cầu Giấy   |   380,000
+  64 | VCT-TS201    | Áo Victor Tournament T-201        | Quần áo        | Kho Thanh Xuân  |   380,000
+  65 | YNX-QN501    | Quần Yonex 501 Woven              | Quần áo        | Kho Cầu Giấy   |   350,000
+  66 | YNX-QN501    | Quần Yonex 501 Woven              | Quần áo        | Kho Long Biên   |   350,000
+  67 | LN-AAYT011   | Áo Li-Ning All England Open       | Quần áo        | Kho Thanh Xuân  |   520,000
+  68 | LN-AAYT011   | Áo Li-Ning All England Open       | Quần áo        | Kho Long Biên   |   520,000
+
+================================================================================
+  TỔNG HỢP THEO DANH MỤC
+  ────────────────────────
+  • Vợt cầu lông  : 20 bản ghi (9 SKU)   — giá nhập 2,500,000 – 3,500,000 ₫
+  • Giày cầu lông  : 11 bản ghi (4 SKU)   — giá nhập 1,800,000 – 2,800,000 ₫
+  • Quả cầu        :  8 bản ghi (3 SKU)   — giá nhập   350,000 –   450,000 ₫
+  • Phụ kiện       : 23 bản ghi (10 SKU)  — giá nhập    20,000 –   350,000 ₫
+  • Túi vợt        :  7 bản ghi (3 SKU)   — giá nhập   620,000 – 1,200,000 ₫
+  • Quần áo        :  9 bản ghi (4 SKU)   — giá nhập   350,000 –   520,000 ₫
+  ────────────────────────────────────────────────
+  TỔNG              : 82 bản ghi | 30 SKU duy nhất
+
+  PHÂN BỐ THEO KHO
+  ────────────────────────
+  • Kho Cầu Giấy   : 30 bản ghi
+  • Kho Thanh Xuân  : 24 bản ghi
+  • Kho Long Biên   : 28 bản ghi
+
+================================================================================
+  Hướng dẫn nhập mã:
+  - Nhập đúng mã SKU (vd: YNX-AX88D) vào ô tìm kiếm
+  - Có thể nhập tên sản phẩm hoặc một phần mã để tìm
+  - Chỉ hiển thị sản phẩm còn hàng (available > 0)
+  - Mã SKU phân biệt hoa/thường
+  - Cùng một SKU có thể xuất hiện ở nhiều kho khác nhau
+================================================================================
+  Cập nhật: 28/02/2026
+================================================================================
