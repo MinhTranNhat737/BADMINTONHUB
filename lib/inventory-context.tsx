@@ -37,10 +37,12 @@ export interface PurchaseOrder {
   poItems?: { sku: string; name: string; qty: number; unitCost: number }[]
 }
 
+export interface WarehouseInfo { id: number; name: string; isHub: boolean }
+
 interface InventoryContextType {
   inventory: InventoryItem[]; transactions: InventoryTransaction[]
   transferRequests: TransferRequest[]; adminSlips: AdminWarehouseSlip[]
-  purchaseOrders: PurchaseOrder[]; loading: boolean
+  purchaseOrders: PurchaseOrder[]; warehouses: WarehouseInfo[]; loading: boolean
   refreshInventory: () => Promise<void>
   importItems: (p: { items: { sku: string; name: string; qty: number; cost: number }[]; warehouse: string; note: string; date: string; operator: string }) => Promise<void>
   exportItems: (p: { items: { sku: string; name: string; qty: number; reason: string }[]; warehouse: string; note: string; date: string; operator: string }) => Promise<boolean>
@@ -84,6 +86,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   const [transferRequests, setTransferRequests] = useState<TransferRequest[]>([])
   const [adminSlips, setAdminSlips] = useState<AdminWarehouseSlip[]>([])
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [warehouses, setWarehouses] = useState<WarehouseInfo[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchInv = useCallback(async()=>{if(!canAccess)return;try{const r=await inventoryApi.getAll();if(r.success&&r.data)setInventory(r.data.map(txItem))}catch{}}, [canAccess])
@@ -93,7 +96,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
 
   const refreshInventory = useCallback(async()=>{if(!canAccess){setLoading(false);return};await Promise.all([fetchInv(),fetchTxn(),fetchTfr(),fetchPOs()])}, [canAccess,fetchInv,fetchTxn,fetchTfr,fetchPOs])
 
-  useEffect(()=>{const init=async()=>{setLoading(true);if(canAccess){await ensureWhMap();await refreshInventory()}setAdminSlips(loadSlips());setLoading(false)};init()}, [canAccess,refreshInventory])
+  useEffect(()=>{const init=async()=>{setLoading(true);if(canAccess){await ensureWhMap();try{const wr=await inventoryApi.getWarehouses();if(wr.success&&wr.data)setWarehouses(wr.data.map((w:any)=>({id:w.id,name:w.name,isHub:!!w.is_hub})))}catch{};await refreshInventory()}setAdminSlips(loadSlips());setLoading(false)};init()}, [canAccess,refreshInventory])
 
   const importItems = useCallback(async({items,warehouse,note,date,operator}:{items:{sku:string;name:string;qty:number;cost:number}[];warehouse:string;note:string;date:string;operator:string})=>{
     await ensureWhMap(); const wid=whMap[warehouse]; if(!wid)throw new Error("Kho not found: "+warehouse)
@@ -145,7 +148,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(()=>{setInventory([]);setTransactions([]);setTransferRequests([]);setAdminSlips([]);setPurchaseOrders([]);try{localStorage.removeItem(SLIP_KEY)}catch{};refreshInventory()}, [refreshInventory])
 
   return (
-    <InventoryContext.Provider value={{inventory,transactions,transferRequests,adminSlips,purchaseOrders,loading,refreshInventory,importItems,exportItems,createTransfer,updateTransferStatus,exportTransferItems,receiveTransferItems,createAdminSlip,processAdminSlip,updatePOStatus,resetAll}}>
+    <InventoryContext.Provider value={{inventory,transactions,transferRequests,adminSlips,purchaseOrders,warehouses,loading,refreshInventory,importItems,exportItems,createTransfer,updateTransferStatus,exportTransferItems,receiveTransferItems,createAdminSlip,processAdminSlip,updatePOStatus,resetAll}}>
       {children}
     </InventoryContext.Provider>
   )

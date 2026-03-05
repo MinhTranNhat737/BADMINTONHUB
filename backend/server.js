@@ -12,6 +12,7 @@ const morgan  = require('morgan');
 const { testConnection } = require('./config/database');
 const routes             = require('./routes');
 const { errorHandler }   = require('./middlewares/error.middleware');
+const Booking            = require('./models/booking.model');
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
@@ -62,6 +63,18 @@ const start = async () => {
     console.log(`\n🏸 BadmintonHub API đang chạy tại http://localhost:${PORT}`);
     console.log(`📋 API docs: http://localhost:${PORT}/api\n`);
   });
+
+  // ─── Cron: Tự động hoàn thành booking hết giờ (mỗi 60 giây) ──
+  setInterval(async () => {
+    try {
+      const completed = await Booking.autoComplete();
+      if (completed.length > 0) {
+        console.log(`✅ Auto-completed ${completed.length} booking(s):`, completed.map(b => b.booking_code).join(', '));
+      }
+    } catch (err) {
+      console.error('❌ Auto-complete error:', err.message);
+    }
+  }, 60 * 1000);
 };
 
 start();

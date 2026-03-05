@@ -1,9 +1,27 @@
 // ═══════════════════════════════════════════════════════════════
 // BadmintonHub — API Service Layer
-// Kết nối frontend Next.js với backend Express
+// Kết nối frontend Next.js với backend Express (dùng axios)
 // ═══════════════════════════════════════════════════════════════
 
+import axios, { type AxiosRequestConfig } from 'axios'
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'
+
+// ─── Axios instance ─────────────────────────────────────────
+const apiClient = axios.create({
+  baseURL: API_BASE,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+})
+
+// Request interceptor — tự động gắn token
+apiClient.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
 // ─── Token management ───────────────────────────────────────
 let authToken: string | null = null
@@ -25,29 +43,25 @@ export function getToken(): string | null {
   return authToken
 }
 
-// ─── Base fetch helper ──────────────────────────────────────
+// ─── Base API helper (dùng axios) ───────────────────────────
 async function apiFetch<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options: { method?: string; body?: string; headers?: Record<string, string> } = {}
 ): Promise<{ success: boolean; data?: T; message?: string; pagination?: any }> {
-  const token = getToken()
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
-  }
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
   try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      return { success: false, message: json.message || `Error ${res.status}` }
+    const config: AxiosRequestConfig = {
+      url: endpoint,
+      method: (options.method as any) || 'GET',
+      data: options.body ? JSON.parse(options.body) : undefined,
+      headers: options.headers || {},
     }
-    return json
+    const res = await apiClient.request(config)
+    return res.data
   } catch (err: any) {
+    if (err.response) {
+      // Server trả về lỗi (4xx, 5xx)
+      return { success: false, message: err.response.data?.message || `Error ${err.response.status}` }
+    }
     console.error('API Error:', err)
     return { success: false, message: 'Không thể kết nối server' }
   }
@@ -106,6 +120,7 @@ export interface ApiProduct {
 
 export interface ApiUser {
   id: string
+  userCode: string
   username: string
   fullName: string
   email: string
@@ -116,10 +131,12 @@ export interface ApiUser {
   role: 'user' | 'admin' | 'employee' | 'guest'
   warehouseId: number | null
   createdAt: string
+  updatedAt: string
 }
 
 export interface ApiBooking {
   id: string
+  bookingCode: string
   courtId: number
   courtName: string
   branchName: string
@@ -208,6 +225,7 @@ function transformProduct(raw: any): ApiProduct {
 function transformUser(raw: any): ApiUser {
   return {
     id: raw.id,
+    userCode: raw.user_code || '',
     username: raw.username,
     fullName: raw.full_name,
     email: raw.email,
@@ -218,12 +236,14 @@ function transformUser(raw: any): ApiUser {
     role: raw.role,
     warehouseId: raw.warehouse_id,
     createdAt: raw.created_at,
+    updatedAt: raw.updated_at || '',
   }
 }
 
 function transformBooking(raw: any): ApiBooking {
   return {
     id: raw.id,
+    bookingCode: raw.booking_code || '',
     courtId: raw.court_id,
     courtName: raw.court_name || '',
     branchName: raw.branch_name || '',
@@ -500,7 +520,8 @@ export const bookingApi = {
     court_id: number; booking_date: string;
     time_start: string; time_end: string; slots: number;
     customer_name: string; customer_phone: string;
-    amount: number; payment_method?: string; note?: string
+    amount: number; payment_method?: string; note?: string;
+    user_id?: string
   }) => {
     const res = await apiFetch<any>('/bookings', {
       method: 'POST',
@@ -525,6 +546,59 @@ export const bookingApi = {
 
   delete: async (id: string) => {
     return apiFetch(`/bookings/${id}`, { method: 'DELETE' })
+  },
+
+  checkin: async (data: { bookingId?: string; bookingCode?: string }) => {
+    const res = await apiFetch<any>('/bookings/checkin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    if (res.success && res.data) {
+      return { success: true, booking: transformBooking(res.data), message: res.message }
+    }
+    return { success: false, error: res.message }
+  },
+
+  createRecurring: async (data: {
+    court_id: number; time_start: string; time_end: string;
+    start_date: string; weeks: number;
+    slots?: number; customer_name: string; customer_phone: string;
+    amount: number; payment_method?: string; note?: string;
+    user_id?: string
+  }) => {
+    const res = await apiFetch<any>('/bookings/recurring', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return { success: res.success, message: res.message, data: res.data, errors: (res as any).errors }
+  },
+
+  // Giữ chỗ (hold) — dùng khi khách đang chờ thanh toán
+  createHold: async (data: {
+    court_id: number; booking_date: string;
+    time_start: string; time_end: string; slots?: number;
+    customer_name: string; customer_phone: string;
+    amount: number; payment_method?: string; note?: string;
+  }) => {
+    const res = await apiFetch<any>('/bookings/hold', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    if (res.success && res.data) {
+      return { success: true, booking: transformBooking(res.data), message: res.message }
+    }
+    return { success: false, error: res.message }
+  },
+
+  // Xác nhận thanh toán (hold/pending → confirmed)
+  confirmPayment: async (id: string) => {
+    const res = await apiFetch<any>(`/bookings/${id}/confirm-payment`, {
+      method: 'PATCH',
+    })
+    if (res.success && res.data) {
+      return { success: true, booking: transformBooking(res.data), message: res.message }
+    }
+    return { success: false, error: res.message }
   },
 }
 
@@ -751,5 +825,71 @@ export const salesOrderApi = {
       method: 'PATCH',
       body: JSON.stringify({ reason }),
     })
+  },
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USER MANAGEMENT API (Admin)
+// ═══════════════════════════════════════════════════════════════
+
+export const userApi = {
+  getAll: async (filters?: { role?: string; search?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (filters?.role) params.set('role', filters.role)
+    if (filters?.search) params.set('search', filters.search)
+    if (filters?.page) params.set('page', String(filters.page))
+    if (filters?.limit) params.set('limit', String(filters.limit))
+    const qs = params.toString()
+    const res = await apiFetch<any>(`/users${qs ? '?' + qs : ''}`)
+    if (res.success) {
+      const users = (res.data || []).map(transformUser)
+      return { users, pagination: res.pagination }
+    }
+    return { users: [] }
+  },
+
+  getById: async (id: string): Promise<ApiUser | null> => {
+    const res = await apiFetch<any>(`/users/${id}`)
+    if (res.success && res.data) return transformUser(res.data)
+    return null
+  },
+
+  create: async (data: {
+    username: string; password: string; full_name: string;
+    email: string; phone: string; role?: string;
+    address?: string; gender?: string; date_of_birth?: string;
+    warehouse_id?: number;
+  }) => {
+    const res = await apiFetch<any>('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    if (res.success && res.data) {
+      return { success: true, user: transformUser(res.data) }
+    }
+    return { success: false, error: res.message }
+  },
+
+  update: async (id: string, data: Record<string, any>) => {
+    const res = await apiFetch<any>(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+    if (res.success && res.data) {
+      return { success: true, user: transformUser(res.data) }
+    }
+    return { success: false, error: res.message }
+  },
+
+  resetPassword: async (id: string, new_password: string) => {
+    const res = await apiFetch<any>(`/users/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ new_password }),
+    })
+    return { success: res.success, message: res.message }
+  },
+
+  delete: async (id: string) => {
+    return apiFetch(`/users/${id}`, { method: 'DELETE' })
   },
 }

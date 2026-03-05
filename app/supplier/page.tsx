@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import Image from "next/image"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,46 +14,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { POStatusBadge } from "@/components/shared"
 import { formatVND } from "@/lib/utils"
 import { cn } from "@/lib/utils"
+import { purchaseOrderApi } from "@/lib/api"
 import {
   Bell, Package, Truck, FileText, ChevronDown, ChevronUp,
-  Upload, Calendar, CheckCircle2, Clock, Eye, Send
+  Upload, Calendar, CheckCircle2, Clock, Eye, Send, Loader2
 } from "lucide-react"
-
-const supplierPOs = [
-  {
-    id: "PO-2026-004", status: "pending", createdDate: "2026-02-20",
-    totalValue: 56000000, items: [
-      { name: "Vot Yonex Astrox 88D Pro", qty: 10, unitCost: 3200000 },
-      { name: "Cuoc Yonex BG65", qty: 100, unitCost: 85000 },
-      { name: "Quan can Yonex AC102EX", qty: 200, unitCost: 25000 },
-    ],
-    buyer: "BadmintonHub",
-    deliveryDate: "2026-03-05",
-    notes: "Ưu tiên giao hàng trước ngày 05/03. Liên hệ trước khi giao.",
-  },
-  {
-    id: "PO-2026-002", status: "in-transit", createdDate: "2026-02-10",
-    totalValue: 32000000, items: [
-      { name: "Vot Victor Thruster K 9900", qty: 8, unitCost: 2700000 },
-      { name: "Tui vot Lining ABJT059", qty: 10, unitCost: 620000 },
-    ],
-    buyer: "BadmintonHub",
-    deliveryDate: "2026-02-28",
-    notes: "",
-    tracking: "VN-2026-88432",
-    carrier: "Giao hàng nhanh",
-    batch: "BATCH-VCT-2026-02",
-  },
-  {
-    id: "PO-2026-001", status: "delivered", createdDate: "2026-02-01",
-    totalValue: 48000000, items: [
-      { name: "Vot Yonex Astrox 88D Pro", qty: 15, unitCost: 3200000 },
-    ],
-    buyer: "BadmintonHub",
-    deliveryDate: "2026-02-15",
-    notes: "",
-  },
-]
 
 function DeliveryUpdateDialog() {
   const [dragOver, setDragOver] = useState(false)
@@ -150,6 +115,38 @@ function MiniTimeline({ status }: { status: string }) {
 
 export default function SupplierPortal() {
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
+  const [supplierPOs, setSupplierPOs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchPOs = async () => {
+      setLoading(true)
+      try {
+        const res = await purchaseOrderApi.getAll()
+        if (res.success && res.data) {
+          setSupplierPOs(res.data.map((po: any) => ({
+            id: po.orderCode || po.order_code || `PO-${po.id}`,
+            status: po.status || "pending",
+            createdDate: (po.createdAt || po.created_at || "").split("T")[0],
+            totalValue: po.totalAmount || po.total_amount || 0,
+            items: (po.items || []).map((item: any) => ({
+              name: item.productName || item.product_name || item.name || item.sku,
+              qty: item.quantity || 0,
+              unitCost: item.price || item.unitPrice || item.unit_price || 0,
+            })),
+            buyer: "BadmintonHub",
+            deliveryDate: (po.expectedDate || po.expected_date || po.deliveryDate || "").split("T")[0],
+            notes: po.note || po.notes || "",
+            tracking: po.tracking || "",
+            carrier: po.carrier || "",
+            batch: po.batch || "",
+          })))
+        }
+      } catch {}
+      setLoading(false)
+    }
+    fetchPOs()
+  }, [])
 
   const pendingPOs = supplierPOs.filter(p => p.status === "pending")
   const inProgressPOs = supplierPOs.filter(p => p.status === "in-transit")

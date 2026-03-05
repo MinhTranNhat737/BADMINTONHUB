@@ -1289,13 +1289,13 @@ async function main() {
   // 4. Employee users (1 per warehouse)
   // ... tương tự DEFAULT_EMPLOYEES trong auth-context.tsx
 
-  // 5. Courts (11 sân) — copy từ mock-data.ts
+  // 5. Courts (11 sân) — từ database seed
 
-  // 6. Products (34 sản phẩm) — copy từ mock-data.ts
+  // 6. Products (34 sản phẩm) — từ database seed
 
-  // 7. Inventory (132 entries) — copy từ mock-data.ts
+  // 7. Inventory (132 entries) — từ database seed
 
-  // 8. Suppliers (3 NCC) — copy từ mock-data.ts
+  // 8. Suppliers (3 NCC) — từ database seed
 }
 
 main()

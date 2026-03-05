@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { useInventory } from "@/lib/inventory-context"
 
-const BRANCH_WAREHOUSES = ["Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên"]
-
 export default function HubDashboard() {
   const { user } = useAuth()
-  const { inventory, transferRequests } = useInventory()
+  const { inventory, transferRequests, warehouses } = useInventory()
+
+  const BRANCH_WAREHOUSES = useMemo(() => warehouses.filter(w => !w.isHub).map(w => w.name), [warehouses])
 
   const hubItems = useMemo(() => inventory.filter(i => i.warehouse === "Kho Hub"), [inventory])
   const branchItems = useMemo(() => inventory.filter(i => BRANCH_WAREHOUSES.includes(i.warehouse)), [inventory])

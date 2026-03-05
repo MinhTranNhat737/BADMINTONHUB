@@ -21,6 +21,7 @@ import { bookingApi, orderApi, type ApiBooking, type ApiOrder } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { AddressInput } from "@/components/address-input"
+import { QRCodeSVG } from "qrcode.react"
 
 type SidebarPage = "bookings" | "orders" | "favorites" | "rewards" | "settings"
 
@@ -103,7 +104,7 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {booking.branchName}</span>
             </div>
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">{booking.id}</span>
+              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">{booking.bookingCode || booking.id}</span>
               <span className="text-sm font-semibold text-primary">{formatVND(booking.amount)}</span>
             </div>
           </div>
@@ -189,16 +190,17 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
         </button>
         {expanded && (
           <div className="mt-2 p-3 bg-muted rounded-lg flex items-center gap-4">
-            <div className="h-20 w-20 bg-card rounded border flex items-center justify-center">
-              <div className="grid grid-cols-3 gap-0.5 w-12">
-                {Array.from({ length: 9 }).map((_, i) => (
-                  <div key={i} className={`h-3 w-3 rounded-sm ${Math.random() > 0.4 ? 'bg-foreground' : 'bg-background'}`} />
-                ))}
-              </div>
+            <div className="h-24 w-24 bg-white rounded border flex items-center justify-center p-1">
+              <QRCodeSVG
+                value={JSON.stringify({ bookingId: booking.id, bookingCode: booking.bookingCode || booking.id })}
+                size={88}
+                level="M"
+              />
             </div>
             <div className="text-sm">
               <p className="font-semibold">Xuất trình khi đến sân</p>
               <p className="text-muted-foreground text-xs mt-1">Nhân viên sẽ quét mã này để check-in</p>
+              <p className="font-mono text-xs mt-1 text-primary">{booking.bookingCode || booking.id}</p>
             </div>
           </div>
         )}

@@ -6,8 +6,8 @@ const { query } = require('../config/database');
 const User = {
   // Tìm theo ID
   findById: async (id) => {
-    const sql = `SELECT id, username, full_name, email, phone, address, gender, 
-                        date_of_birth, role, warehouse_id, created_at
+    const sql = `SELECT id, user_code, username, full_name, email, phone, address, gender, 
+                        date_of_birth, role, warehouse_id, created_at, updated_at
                  FROM users WHERE id = $1`;
     const result = await query(sql, [id]);
     return result.rows[0] || null;
@@ -34,16 +34,29 @@ const User = {
     return result.rows[0] || null;
   },
 
+  // Sinh mã user tự động: NV001, KH001, AD001
+  generateUserCode: async (role) => {
+    const prefixMap = { admin: 'AD', employee: 'NV', user: 'KH', guest: 'GS' };
+    const prefix = prefixMap[role] || 'KH';
+    const countRes = await query(`SELECT COUNT(*) as cnt FROM users WHERE role = $1`, [role]);
+    const seq = parseInt(countRes.rows[0].cnt) + 1;
+    return `${prefix}${String(seq).padStart(3, '0')}`;
+  },
+
   // Tạo user mới (đăng ký)
-  create: async ({ username, password_hash, full_name, email, phone, address, gender, date_of_birth, role = 'user', warehouse_id = null }) => {
-    const sql = `INSERT INTO users (username, password_hash, full_name, email, phone, address, gender, date_of_birth, role, warehouse_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                 RETURNING id, username, full_name, email, phone, role, warehouse_id, created_at`;
-    const result = await query(sql, [username, password_hash, full_name, email, phone, address, gender, date_of_birth, role, warehouse_id]);
+  create: async ({ username, password_hash, full_name, email, phone, address, gender, date_of_birth, role = 'user', warehouse_id = null, user_code = null }) => {
+    // Tự sinh mã nếu chưa có
+    if (!user_code) {
+      user_code = await User.generateUserCode(role);
+    }
+    const sql = `INSERT INTO users (username, password_hash, full_name, email, phone, address, gender, date_of_birth, role, warehouse_id, user_code)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 RETURNING id, user_code, username, full_name, email, phone, role, warehouse_id, created_at`;
+    const result = await query(sql, [username, password_hash, full_name, email, phone, address, gender, date_of_birth, role, warehouse_id, user_code]);
     return result.rows[0];
   },
 
-  // Cập nhật thông tin
+  // Cập nhật thông tin (user tự cập nhật)
   update: async (id, fields) => {
     const allowed = ['full_name', 'email', 'phone', 'address', 'gender', 'date_of_birth'];
     const sets = [];
@@ -63,7 +76,32 @@ const User = {
     values.push(id);
 
     const sql = `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx}
-                 RETURNING id, username, full_name, email, phone, address, gender, role, warehouse_id`;
+                 RETURNING id, user_code, username, full_name, email, phone, address, gender, role, warehouse_id`;
+    const result = await query(sql, values);
+    return result.rows[0] || null;
+  },
+
+  // Admin cập nhật (cho phép đổi role, warehouse_id)
+  adminUpdate: async (id, fields) => {
+    const allowed = ['full_name', 'email', 'phone', 'address', 'gender', 'date_of_birth', 'role', 'warehouse_id', 'user_code'];
+    const sets = [];
+    const values = [];
+    let idx = 1;
+
+    for (const key of allowed) {
+      if (fields[key] !== undefined) {
+        sets.push(`${key} = $${idx}`);
+        values.push(fields[key]);
+        idx++;
+      }
+    }
+    if (sets.length === 0) return null;
+
+    sets.push(`updated_at = NOW()`);
+    values.push(id);
+
+    const sql = `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx}
+                 RETURNING id, user_code, username, full_name, email, phone, address, gender, date_of_birth, role, warehouse_id, created_at, updated_at`;
     const result = await query(sql, values);
     return result.rows[0] || null;
   },
@@ -74,23 +112,41 @@ const User = {
     await query(sql, [password_hash, id]);
   },
 
-  // Lấy danh sách (admin)
-  findAll: async ({ role, page = 1, limit = 20 }) => {
-    let sql = `SELECT id, username, full_name, email, phone, role, warehouse_id, created_at FROM users`;
+  // Xoá user
+  deleteById: async (id) => {
+    const sql = `DELETE FROM users WHERE id = $1 RETURNING id`;
+    const result = await query(sql, [id]);
+    return result.rows[0] || null;
+  },
+
+  // Lấy danh sách (admin) — có search, filter role
+  findAll: async ({ role, search, page = 1, limit = 20 } = {}) => {
+    let where = ['TRUE'];
     const values = [];
+    let idx = 1;
+
     if (role) {
-      sql += ` WHERE role = $1`;
+      where.push(`role = $${idx++}`);
       values.push(role);
     }
-    sql += ` ORDER BY created_at DESC`;
+    if (search) {
+      where.push(`(username ILIKE $${idx} OR full_name ILIKE $${idx} OR email ILIKE $${idx} OR phone ILIKE $${idx} OR user_code ILIKE $${idx})`);
+      values.push(`%${search}%`);
+      idx++;
+    }
+
+    const whereClause = where.join(' AND ');
 
     // Count
-    const countSql = sql.replace(/SELECT .+ FROM/, 'SELECT COUNT(*) FROM').split('ORDER BY')[0];
-    const countResult = await query(countSql, values);
+    const countResult = await query(`SELECT COUNT(*) FROM users WHERE ${whereClause}`, values);
     const total = parseInt(countResult.rows[0].count);
 
-    // Paginate
-    sql += ` LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    // Data (không trả password_hash)
+    let sql = `SELECT id, user_code, username, full_name, email, phone, address, gender, date_of_birth,
+                      role, warehouse_id, created_at, updated_at
+               FROM users WHERE ${whereClause}
+               ORDER BY created_at DESC
+               LIMIT $${idx} OFFSET $${idx + 1}`;
     values.push(limit, (page - 1) * limit);
 
     const result = await query(sql, values);

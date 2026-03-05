@@ -88,7 +88,8 @@ function OrderDetailDialog({ order, onApprove, onStartDelivery, onDeliver, onCan
   const [selectedWarehouse, setSelectedWarehouse] = useState(order.fulfillingWarehouse || "")
 
   // Tính tồn kho theo từng kho cho sản phẩm trong đơn
-  const ALL_WAREHOUSES = ["Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên", "Kho Hub"]
+  const { warehouses: warehouseList } = useInventory()
+  const ALL_WAREHOUSES = warehouseList.map(w => w.name)
 
   // Build productId → sku mapping from inventory data
   const productIdToSkuMap: Record<number, string> = {}

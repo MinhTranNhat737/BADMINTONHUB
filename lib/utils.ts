@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// FORMATTING & HELPER FUNCTIONS (migrated from mock-data.ts)
+// FORMATTING & HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
 
 export const WEATHER_API_KEY = "8a4755cdd81b4bdcb9973512251210"
@@ -36,4 +36,17 @@ export function getWeekDays(startDate: Date = new Date()): { date: Date; label: 
     })
   }
   return days
+}
+
+/**
+ * Check if a time slot is in the past (already passed).
+ * @param slotDate - The Date object for the day of the slot
+ * @param slotTime - The time string e.g. "06:00", "14:00"
+ * @returns true if the slot's start hour has already passed
+ */
+export function isSlotPast(slotDate: Date, slotTime: string): boolean {
+  const now = new Date()
+  const slotHour = parseInt(slotTime.split(":")[0])
+  const slotStart = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate(), slotHour, 0, 0)
+  return slotStart <= now
 }

@@ -40,6 +40,7 @@
   --court-available: #DCFCE7;
   --court-booked: #FEE2E2;
   --court-hold: #FEF9C3;
+  --court-past: #F1F5F9;
 }
 
 @theme inline {
@@ -85,6 +86,7 @@
   --color-court-available: var(--court-available);
   --color-court-booked: var(--court-booked);
   --color-court-hold: var(--court-hold);
+  --color-court-past: var(--court-past);
 }
 
 @layer base {

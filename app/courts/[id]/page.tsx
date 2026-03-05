@@ -10,7 +10,7 @@ import { Star, MapPin, Clock, ChevronLeft, ChevronRight, Check, Wifi, Wind, Lamp
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useMemo, use, useCallback, useEffect, useRef } from "react"
-import { formatVND, generateTimeSlots, getWeekDays, WEATHER_API_KEY } from "@/lib/utils"
+import { formatVND, generateTimeSlots, getWeekDays, isSlotPast, WEATHER_API_KEY } from "@/lib/utils"
 import { courtApi, type ApiCourt } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { AddressInput } from "@/components/address-input"
@@ -744,6 +744,7 @@ export default function CourtDetailPage({ params }: { params: Promise<{ id: stri
                     <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-available" /> Trống</span>
                     <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-booked" /> Đã đặt</span>
                     <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-hold" /> Giữ chỗ</span>
+                    <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-past" /> Đã qua</span>
                     <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-primary" /> Đã chọn</span>
                   </div>
                 </CardHeader>
@@ -768,7 +769,19 @@ export default function CourtDetailPage({ params }: { params: Promise<{ id: stri
                             const status = availability[d.label]?.[time] || 'available'
                             const slotKey = `${d.label}-${time}`
                             const isSelected = selectedSlots.includes(slotKey)
-                            const isDisabled = status !== 'available'
+                            const past = isSlotPast(d.date, time)
+                            const isDisabled = status !== 'available' || past
+
+                            if (past && status === 'available' && !isSelected) {
+                              return (
+                                <div
+                                  key={slotKey}
+                                  className="h-8 rounded flex items-center justify-center text-xs font-medium bg-court-past text-slate-400 cursor-not-allowed"
+                                >
+                                  <Lock className="h-3 w-3" />
+                                </div>
+                              )
+                            }
 
                             return (
                               <button
@@ -779,11 +792,13 @@ export default function CourtDetailPage({ params }: { params: Promise<{ id: stri
                                   "h-8 rounded text-xs font-medium transition-all",
                                   isSelected
                                     ? "bg-primary text-primary-foreground"
-                                    : status === 'available'
-                                      ? "bg-court-available hover:bg-green-200 text-green-700 cursor-pointer"
-                                      : status === 'booked'
-                                        ? "bg-court-booked text-red-400 cursor-not-allowed"
-                                        : "bg-court-hold text-amber-400 cursor-not-allowed"
+                                    : past
+                                      ? "bg-court-past text-slate-400 cursor-not-allowed"
+                                      : status === 'available'
+                                        ? "bg-court-available hover:bg-green-200 text-green-700 cursor-pointer"
+                                        : status === 'booked'
+                                          ? "bg-court-booked text-red-400 cursor-not-allowed"
+                                          : "bg-court-hold text-amber-400 cursor-not-allowed"
                                 )}
                               >
                                 {isSelected && <Check className="h-3 w-3 mx-auto" />}

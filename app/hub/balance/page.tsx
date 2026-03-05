@@ -19,8 +19,6 @@ import {
   XOctagon, Warehouse, Zap, Eye, Send, Minus, Plus
 } from "lucide-react"
 
-const BRANCH_WAREHOUSES = ["Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên"]
-
 interface BalanceItem {
   sku: string
   name: string
@@ -49,7 +47,8 @@ interface TransferPlan {
 export default function HubBalancePage() {
   const { user } = useAuth()
   const ctx = useInventory()
-  const { inventory, createTransfer, exportTransferItems } = ctx
+  const { inventory, createTransfer, exportTransferItems, warehouses } = ctx
+  const BRANCH_WAREHOUSES = useMemo(() => warehouses.filter(w => !w.isHub).map(w => w.name), [warehouses])
 
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")

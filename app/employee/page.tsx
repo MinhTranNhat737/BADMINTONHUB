@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -8,28 +8,16 @@ import {
   ShoppingCart, Package, DollarSign, ArrowDownToLine, ArrowUpFromLine, TrendingUp
 } from "lucide-react"
 import { formatVND } from "@/lib/utils"
-import { inventoryApi } from "@/lib/api"
+import { inventoryApi, salesOrderApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-
-const todayStats = [
-  { title: "Đơn bán hôm nay", value: "12", icon: <ShoppingCart className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
-  { title: "Doanh thu bán hàng", value: formatVND(8750000), icon: <DollarSign className="h-5 w-5" />, color: "bg-green-100 text-green-600" },
-  { title: "Nhập kho hôm nay", value: "3", icon: <ArrowDownToLine className="h-5 w-5" />, color: "bg-purple-100 text-purple-600" },
-  { title: "Xuất kho hôm nay", value: "5", icon: <ArrowUpFromLine className="h-5 w-5" />, color: "bg-orange-100 text-orange-600" },
-]
-
-const recentSales = [
-  { id: "HD-001", time: "09:15", customer: "Nguyễn Văn A", items: 2, total: 4740000, method: "Tiền mặt" },
-  { id: "HD-002", time: "10:30", customer: "Trần Thị B", items: 1, total: 150000, method: "MoMo" },
-  { id: "HD-003", time: "11:45", customer: "Lê Văn C", items: 3, total: 1085000, method: "Tiền mặt" },
-  { id: "HD-004", time: "14:20", customer: "Phạm Thị D", items: 1, total: 3290000, method: "VNPay" },
-  { id: "HD-005", time: "15:00", customer: "Hoàng Văn E", items: 2, total: 485000, method: "Tiền mặt" },
-]
 
 export default function EmployeeDashboard() {
   const { user } = useAuth()
   const [lowStockItems, setLowStockItems] = useState<any[]>([])
+  const [salesOrders, setSalesOrders] = useState<any[]>([])
+  const [transactions, setTransactions] = useState<any[]>([])
+
   useEffect(() => {
     inventoryApi.getLowStock().then((res: any) => {
       if (res.success && res.data) setLowStockItems(res.data.map((i: any) => ({
@@ -38,7 +26,57 @@ export default function EmployeeDashboard() {
         reorderPoint: i.reorder_point ?? i.min_quantity ?? 10,
       })))
     }).catch(() => {})
+
+    salesOrderApi.getAll().then((res: any) => {
+      if (res.success && res.data) setSalesOrders(res.data)
+    }).catch(() => {})
+
+    inventoryApi.getTransactions().then((res: any) => {
+      if (res.success && res.data) setTransactions(res.data)
+    }).catch(() => {})
   }, [])
+
+  // Compute today's stats from real data
+  const todayStr = new Date().toISOString().split("T")[0]
+  const todaySales = useMemo(() => salesOrders.filter((o: any) => {
+    const created = o.createdAt || o.created_at || ""
+    return created.startsWith(todayStr)
+  }), [salesOrders, todayStr])
+  const todayRevenue = useMemo(() => todaySales.reduce((s, o) => s + (parseFloat(o.final_total) || parseFloat(o.total) || 0), 0), [todaySales])
+  const todayImports = useMemo(() => transactions.filter((t: any) => {
+    const created = t.createdAt || t.created_at || ""
+    return created.startsWith(todayStr) && (t.type === "import" || t.type === "IN")
+  }).length, [transactions, todayStr])
+  const todayExports = useMemo(() => transactions.filter((t: any) => {
+    const created = t.createdAt || t.created_at || ""
+    return created.startsWith(todayStr) && (t.type === "export" || t.type === "OUT")
+  }).length, [transactions, todayStr])
+
+  const todayStats = [
+    { title: "Đơn bán hôm nay", value: String(todaySales.length), icon: <ShoppingCart className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
+    { title: "Doanh thu bán hàng", value: formatVND(todayRevenue), icon: <DollarSign className="h-5 w-5" />, color: "bg-green-100 text-green-600" },
+    { title: "Nhập kho hôm nay", value: String(todayImports), icon: <ArrowDownToLine className="h-5 w-5" />, color: "bg-purple-100 text-purple-600" },
+    { title: "Xuất kho hôm nay", value: String(todayExports), icon: <ArrowUpFromLine className="h-5 w-5" />, color: "bg-orange-100 text-orange-600" },
+  ]
+
+  // Recent sales (latest 5)
+  const recentSales = useMemo(() => {
+    return [...salesOrders]
+      .sort((a, b) => {
+        const da = a.createdAt || a.created_at || ""
+        const db = b.createdAt || b.created_at || ""
+        return db.localeCompare(da)
+      })
+      .slice(0, 5)
+      .map((o: any) => ({
+        id: o.orderCode || o.id,
+        time: (o.createdAt || o.created_at || "").substring(11, 16) || "--:--",
+        customer: o.customerName || o.customer_name || "Khách lẻ",
+        items: o.items?.length || 0,
+        total: parseFloat(o.final_total) || parseFloat(o.total) || 0,
+        method: o.paymentMethod || o.payment_method || "Tiền mặt",
+      }))
+  }, [salesOrders])
 
   return (
     <div>
@@ -116,8 +154,8 @@ export default function EmployeeDashboard() {
               <p className="text-sm text-muted-foreground text-center py-8">Không có sản phẩm nào sắp hết hàng</p>
             ) : (
               <div className="space-y-3">
-                {lowStockItems.map(item => (
-                  <div key={item.id} className="flex items-center justify-between p-3 rounded-lg bg-amber-50 border border-amber-100">
+                {lowStockItems.map((item, idx) => (
+                  <div key={`${item.id}-${item.warehouse}-${idx}`} className="flex items-center justify-between p-3 rounded-lg bg-amber-50 border border-amber-100">
                     <div>
                       <p className="text-sm font-medium">{item.name}</p>
                       <p className="text-xs text-muted-foreground">{item.sku} • {item.warehouse}</p>

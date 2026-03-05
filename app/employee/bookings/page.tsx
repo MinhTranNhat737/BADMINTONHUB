@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useMemo, Fragment } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -22,15 +21,16 @@ import { BookingStatusBadge, PaymentBadge } from "@/components/shared"
 import { formatVND, generateTimeSlots, isSlotPast } from "@/lib/utils"
 import { branchApi, courtApi, bookingApi, userApi, ApiBooking, ApiBranch, ApiCourt, ApiUser } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/lib/auth-context"
 import {
-  Search, Download, Plus, Eye, Edit2, Trash2, ChevronDown, ChevronUp,
+  Search, Plus, Eye, Edit2, ChevronDown, ChevronUp,
   Calendar as CalendarIcon, Clock, Users, MapPin, Phone, Mail, CheckCircle2,
-  Play, XCircle, QrCode, DollarSign, TrendingUp, AlertTriangle, LayoutList,
+  Play, QrCode, DollarSign, TrendingUp, AlertTriangle,
   CalendarDays, RefreshCw, ArrowUpDown, Lock, Repeat,
-  ChevronLeft, ChevronRight, X, Loader2, Printer, Building2
+  ChevronLeft, ChevronRight, X, Loader2, Building2
 } from "lucide-react"
 
-/* ─── Adapter types ─── */
+/* ─── Types ─── */
 
 interface BookingHistoryEntry {
   id: string; bookingCode: string; court: string; branch: string; date: string; day: string
@@ -46,6 +46,8 @@ interface CourtBookingEntry {
 
 interface BranchItem { id: number; name: string; address?: string }
 interface CourtItem { id: number; name: string; branch: string; branchId: number; type: string; price: number; indoor?: boolean }
+
+/* ─── Helpers ─── */
 
 function apiToBooking(b: ApiBooking): BookingHistoryEntry {
   return {
@@ -81,25 +83,22 @@ function bookingsToSlots(bookings: BookingHistoryEntry[]): CourtBookingEntry[] {
   return slots
 }
 
-/* ─── Helpers ─── */
-
 function generateBookingId() {
-  const now = new Date()
-  const dateStr = `${now.getFullYear().toString().slice(2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`
-  const seq = Math.floor(Math.random() * 999) + 1
-  return `BH-${dateStr}-${seq.toString().padStart(3, '0')}`
+  return `BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
 }
 
 function formatDate(dateStr: string) {
   try {
     const d = new Date(dateStr)
-    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   } catch { return dateStr }
 }
 
 function formatDateShort(date: Date) {
-  return `${date.getDate()}/${date.getMonth() + 1}`
+  return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`
 }
+
+/* ─── Status flow ─── */
 
 const statusFlow: Record<string, string> = {
   hold: "confirmed",
@@ -115,266 +114,173 @@ const statusActionLabel: Record<string, string> = {
   playing: "Hoàn thành",
 }
 
-const timelineSteps = [
-  { label: "Tạo", icon: <Plus className="h-3 w-3" /> },
-  { label: "Xác nhận", icon: <CheckCircle2 className="h-3 w-3" /> },
-  { label: "Check-in", icon: <Play className="h-3 w-3" /> },
-  { label: "Hoàn thành", icon: <CheckCircle2 className="h-3 w-3" /> },
-]
+const timelineSteps = ["pending", "confirmed", "playing", "completed"]
 
 function getTimelineStep(status: string) {
-  switch (status) {
-    case "pending": return 0
-    case "confirmed": return 1
-    case "playing": return 2
-    case "completed": return 3
-    case "cancelled": return -1
-    default: return 0
-  }
+  const idx = timelineSteps.indexOf(status)
+  return idx >= 0 ? idx : 0
 }
 
-/* ─── Detail Sheet ─── */
+/* ─── Booking Detail Sheet ─── */
 
 function BookingDetailSheet({
   booking,
   onStatusChange,
-  onEdit,
 }: {
   booking: BookingHistoryEntry
-  onStatusChange: (id: string, newStatus: string) => void
-  onEdit: (booking: BookingHistoryEntry) => void
+  onStatusChange: (id: string, status: string) => void
 }) {
   const step = getTimelineStep(booking.status)
 
   return (
-    <SheetContent className="w-full sm:max-w-[480px] overflow-y-auto">
+    <SheetContent className="sm:max-w-[480px] overflow-y-auto">
       <SheetHeader>
-        <SheetTitle className="font-serif">Chi tiết booking</SheetTitle>
+        <SheetTitle className="font-serif text-xl">Chi tiết booking</SheetTitle>
       </SheetHeader>
 
       <div className="mt-6 space-y-6">
-        {/* Header */}
+        {/* Booking Code */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-mono text-sm text-primary font-semibold">{booking.bookingCode}</p>
-            <p className="text-lg font-serif font-bold mt-1">{booking.court}</p>
+            <p className="text-xs text-muted-foreground">Mã booking</p>
+            <p className="font-mono text-lg font-bold text-primary">{booking.bookingCode}</p>
           </div>
           <BookingStatusBadge status={booking.status} />
         </div>
 
         {/* Timeline */}
-        {booking.status !== "cancelled" && (
-          <div className="flex items-center gap-1">
-            {timelineSteps.map((s, i) => (
-              <div key={i} className="flex items-center flex-1">
-                <div className={cn(
-                  "flex items-center justify-center h-7 w-7 rounded-full shrink-0 transition-colors",
-                  i <= step ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground"
-                )}>
-                  {s.icon}
-                </div>
-                {i < timelineSteps.length - 1 && (
-                  <div className={cn(
-                    "h-0.5 flex-1 mx-1 rounded-full",
-                    i < step ? "bg-secondary" : "bg-muted"
-                  )} />
-                )}
+        <div className="flex items-center gap-1">
+          {timelineSteps.map((s, i) => (
+            <Fragment key={s}>
+              <div className={cn(
+                "flex items-center justify-center h-7 w-7 rounded-full text-[10px] font-bold",
+                i <= step ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+              )}>
+                {i + 1}
               </div>
-            ))}
-          </div>
-        )}
-        {booking.status !== "cancelled" && (
-          <div className="flex justify-between px-1">
-            {timelineSteps.map((s, i) => (
-              <span key={i} className={cn("text-[10px] text-center", i <= step ? "text-secondary font-medium" : "text-muted-foreground")}>
-                {s.label}
-              </span>
-            ))}
-          </div>
-        )}
+              {i < timelineSteps.length - 1 && (
+                <div className={cn("flex-1 h-0.5", i < step ? "bg-primary" : "bg-muted")} />
+              )}
+            </Fragment>
+          ))}
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground -mt-4 px-1">
+          <span>Chờ</span><span>Xác nhận</span><span>Check-in</span><span>Xong</span>
+        </div>
 
-        {/* Booking Info */}
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex items-center gap-2">
-                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Ngày</p>
-                  <p className="text-sm font-medium">{booking.date}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Giờ</p>
-                  <p className="text-sm font-medium">{booking.time}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Chi nhánh</p>
-                  <p className="text-sm font-medium">{booking.branch}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Số người</p>
-                  <p className="text-sm font-medium">{booking.people} người</p>
-                </div>
-              </div>
+        {/* Info */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-start gap-2">
+            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+            <div>
+              <p className="text-xs text-muted-foreground">Sân</p>
+              <p className="text-sm font-medium">{booking.court}</p>
+              <p className="text-xs text-muted-foreground">{booking.branch}</p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Customer Info */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Thông tin khách hàng</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
-                {booking.customer.name.split(' ').pop()?.charAt(0)}
-              </div>
-              <div>
-                <p className="font-medium">{booking.customer.name}</p>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                  <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{booking.customer.phone}</span>
-                  <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{booking.customer.email}</span>
-                </div>
-              </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <CalendarIcon className="h-4 w-4 text-muted-foreground mt-0.5" />
+            <div>
+              <p className="text-xs text-muted-foreground">Ngày & giờ</p>
+              <p className="text-sm font-medium">{booking.date}</p>
+              <p className="text-xs text-muted-foreground">{booking.time}</p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Payment Info */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Thanh toán</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0 space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Phương thức</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <Users className="h-4 w-4 text-muted-foreground mt-0.5" />
+            <div>
+              <p className="text-xs text-muted-foreground">Số người</p>
+              <p className="text-sm font-medium">{booking.people} người</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <DollarSign className="h-4 w-4 text-muted-foreground mt-0.5" />
+            <div>
+              <p className="text-xs text-muted-foreground">Tổng tiền</p>
+              <p className="text-sm font-bold text-primary">{formatVND(booking.amount)}</p>
               <PaymentBadge method={booking.paymentMethod} />
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Tổng tiền</span>
-              <span className="font-serif text-lg font-bold text-primary">{formatVND(booking.amount)}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Booking time */}
-        <div className="text-xs text-muted-foreground">
-          Ngày tạo: {booking.createdAt ? formatDate(booking.createdAt) : "—"}
-        </div>
-
-        {/* QR Code */}
-        <div className="flex justify-center">
-          <div className="h-32 w-32 bg-muted rounded-lg flex items-center justify-center border-2 border-dashed border-border">
-            <QrCode className="h-12 w-12 text-muted-foreground" />
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-2">
-          {booking.status === "hold" && (
-            <>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button className="flex-1 bg-green-600 hover:bg-green-700 text-white">Xác nhận thanh toán</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="font-serif">Xác nhận thanh toán?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Xác nhận đã nhận thanh toán cho booking <strong>{booking.bookingCode}</strong> của khách <strong>{booking.customer.name}</strong>? Booking sẽ chuyển sang trạng thái &quot;Đã xác nhận&quot;.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Huỷ</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onStatusChange(booking.id, "confirmed")} className="bg-green-600 hover:bg-green-700">Xác nhận</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="flex-1">Huỷ giữ chỗ</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="font-serif">Huỷ giữ chỗ?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Bạn có chắc muốn huỷ giữ chỗ <strong>{booking.bookingCode}</strong>? Slot sân sẽ được giải phóng.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Quay lại</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onStatusChange(booking.id, "cancelled")} className="bg-red-600 hover:bg-red-700">Huỷ</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </>
-          )}
-          {booking.status === "pending" && (
-            <>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button className="flex-1 bg-secondary hover:bg-secondary/90 text-secondary-foreground">Xác nhận</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="font-serif">Xác nhận booking?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Bạn có chắc muốn xác nhận booking <strong>{booking.bookingCode}</strong> cho khách <strong>{booking.customer.name}</strong>?
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Huỷ</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onStatusChange(booking.id, "confirmed")} className="bg-secondary hover:bg-secondary/90">Xác nhận</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="flex-1">Từ chối</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="font-serif">Từ chối booking?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Bạn có chắc muốn từ chối booking <strong>{booking.bookingCode}</strong>? Hành động này không thể hoàn tác.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Quay lại</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onStatusChange(booking.id, "cancelled")} className="bg-red-600 hover:bg-red-700">Từ chối</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </>
-          )}
-          {booking.status === "confirmed" && (
-            <Button className="flex-1 bg-secondary hover:bg-secondary/90 text-secondary-foreground" onClick={() => onStatusChange(booking.id, "playing")}>Check-in</Button>
-          )}
-          {booking.status === "playing" && (
-            <Button className="flex-1" onClick={() => onStatusChange(booking.id, "completed")}>Hoàn thành</Button>
-          )}
+        {/* Customer */}
+        <div className="rounded-lg border p-4 space-y-2">
+          <h4 className="text-sm font-semibold">Khách hàng</h4>
+          <div className="flex items-center gap-2">
+            <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
+              {booking.customer.name.split(' ').pop()?.charAt(0)}
+            </div>
+            <div>
+              <p className="text-sm font-medium">{booking.customer.name}</p>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{booking.customer.phone}</span>
+                {booking.customer.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{booking.customer.email}</span>}
+              </div>
+            </div>
+          </div>
         </div>
-        {/* Edit / Print */}
-        {booking.status !== "cancelled" && booking.status !== "completed" && (
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => onEdit(booking)}>
-              <Edit2 className="h-4 w-4 mr-2" /> Sửa
-            </Button>
-            <Button variant="outline" className="flex-1">
-              <Printer className="h-4 w-4 mr-2" /> In phiếu
-            </Button>
+
+        {/* Note */}
+        {booking.note && (
+          <div className="rounded-lg border p-4">
+            <h4 className="text-sm font-semibold mb-1">Ghi chú</h4>
+            <p className="text-sm text-muted-foreground">{booking.note}</p>
           </div>
         )}
+
+        {/* Actions */}
+        {booking.status === "hold" && (
+          <>
+            <Button className="w-full bg-green-600 hover:bg-green-700 text-white" onClick={() => onStatusChange(booking.id, "confirmed")}>
+              <CheckCircle2 className="h-4 w-4 mr-2" /> Xác nhận thanh toán
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="w-full text-red-500 border-red-200 hover:bg-red-50">Huỷ giữ chỗ</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="font-serif">Huỷ giữ chỗ?</AlertDialogTitle>
+                  <AlertDialogDescription>Booking <strong>{booking.bookingCode}</strong> sẽ bị huỷ và slot sân được giải phóng.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Quay lại</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => onStatusChange(booking.id, "cancelled")} className="bg-red-600 hover:bg-red-700">Huỷ</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
+        {statusFlow[booking.status] && booking.status !== "hold" && (
+          <Button className="w-full" onClick={() => onStatusChange(booking.id, statusFlow[booking.status])}>
+            {booking.status === "pending" && <><CheckCircle2 className="h-4 w-4 mr-2" /> Xác nhận booking</>}
+            {booking.status === "confirmed" && <><Play className="h-4 w-4 mr-2" /> Check-in</>}
+            {booking.status === "playing" && <><CheckCircle2 className="h-4 w-4 mr-2" /> Hoàn thành</>}
+          </Button>
+        )}
+
+        {(booking.status === "pending" || booking.status === "hold") && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" className="w-full text-red-500 border-red-200 hover:bg-red-50">Huỷ booking</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="font-serif">Huỷ booking?</AlertDialogTitle>
+                <AlertDialogDescription>Booking <strong>{booking.bookingCode}</strong> sẽ bị huỷ và slot sân được giải phóng.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Quay lại</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onStatusChange(booking.id, "cancelled")} className="bg-red-600 hover:bg-red-700">Huỷ booking</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+
+        {/* Timestamps */}
+        <div className="text-xs text-muted-foreground">
+          <p>Tạo lúc: {booking.createdAt ? formatDate(booking.createdAt) : "—"}</p>
+        </div>
       </div>
     </SheetContent>
   )
@@ -409,7 +315,7 @@ function BookingFormDialog({
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("MoMo")
+  const [paymentMethod, setPaymentMethod] = useState("Cash")
   const [status, setStatus] = useState("confirmed")
   const [note, setNote] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -437,23 +343,29 @@ function BookingFormDialog({
         setCustomerEmail(editBooking.customer.email)
         setPaymentMethod(editBooking.paymentMethod)
         setStatus(editBooking.status)
+        setNote(editBooking.note || "")
       } else {
-        setBranchId("")
+        // Auto-select employee's branch
+        if (branches.length === 1) {
+          setBranchId(String(branches[0].id))
+        } else {
+          setBranchId("")
+        }
         setCourtId("")
-        setBookingDate(undefined)
+        setBookingDate(new Date())
         setStartTime("")
         setEndTime("")
         setPeople(2)
         setCustomerName("")
         setCustomerPhone("")
         setCustomerEmail("")
-        setPaymentMethod("MoMo")
+        setPaymentMethod("Cash")
         setStatus("confirmed")
         setNote("")
         setErrors({})
       }
     }
-  }, [open, editBooking, allCourts])
+  }, [open, editBooking, allCourts, branches])
 
   const filteredCourts = useMemo(() => {
     if (!branchId) return allCourts
@@ -520,6 +432,7 @@ function BookingFormDialog({
       paymentMethod,
       customer: { name: customerName, phone: customerPhone, email: customerEmail },
       createdAt: editBooking?.createdAt || new Date().toISOString(),
+      note,
     }
 
     onSave(entry, isEdit)
@@ -531,7 +444,7 @@ function BookingFormDialog({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-serif text-xl">
-            {isEdit ? "Sửa booking" : "Tạo booking mới"}
+            {isEdit ? "Sửa booking" : "Đặt sân trực tiếp (POS)"}
           </DialogTitle>
         </DialogHeader>
 
@@ -665,11 +578,11 @@ function BookingFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="Cash">Tiền mặt</SelectItem>
                   <SelectItem value="MoMo">MoMo</SelectItem>
                   <SelectItem value="VNPay">VNPay</SelectItem>
                   <SelectItem value="Bank transfer">Chuyển khoản</SelectItem>
                   <SelectItem value="Wallet">Ví BH</SelectItem>
-                  <SelectItem value="Cash">Tiền mặt</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -680,10 +593,8 @@ function BookingFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">Chờ xác nhận</SelectItem>
                   <SelectItem value="confirmed">Đã xác nhận</SelectItem>
                   <SelectItem value="playing">Đang chơi</SelectItem>
-                  <SelectItem value="completed">Hoàn thành</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -699,7 +610,7 @@ function BookingFormDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Huỷ</Button>
           <Button onClick={handleSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            {isEdit ? "Lưu thay đổi" : "Tạo booking"}
+            {isEdit ? "Lưu thay đổi" : "Đặt sân"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -717,7 +628,6 @@ function ScheduleView({
 }: {
   allCourts: CourtItem[]
   courtBookings: CourtBookingEntry[]
-  bookingHistory: BookingHistoryEntry[]
   branches: BranchItem[]
   onRefresh: () => void
 }) {
@@ -758,7 +668,6 @@ function ScheduleView({
     return () => clearTimeout(timer)
   }, [qbUserSearch])
 
-  // Cập nhật selectedBranch khi branches load xong
   useEffect(() => {
     if (branches.length > 0 && !selectedBranch) {
       setSelectedBranch(String(branches[0].id))
@@ -772,7 +681,6 @@ function ScheduleView({
   const dateLabel = formatDateShort(scheduleDate)
   const timeSlots = generateTimeSlots()
 
-  // Build map: courtId → time → booking info
   const scheduleMap = useMemo(() => {
     const map: Record<number, Record<string, { status: string; bookedBy?: string; bookingId?: string }>> = {}
     branchCourts.forEach(c => {
@@ -795,7 +703,6 @@ function ScheduleView({
 
   const dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
 
-  // Summary stats
   const stats = useMemo(() => {
     let totalSlots = 0, bookedSlots = 0, holdSlots = 0
     branchCourts.forEach(c => {
@@ -906,15 +813,12 @@ function ScheduleView({
           </div>
         </div>
 
-        {/* Summary & Legend */}
         <div className="flex items-center gap-4 text-xs">
           <span className="font-medium text-muted-foreground">
             Đặt: <strong className="text-foreground">{stats.bookedSlots}</strong> / {stats.totalSlots}
-            {stats.holdSlots > 0 && <> · Giữ: <strong className="text-amber-600">{stats.holdSlots}</strong></>}
           </span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-green-100 border border-green-300" /> Trống</span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-primary/20 border border-primary/40" /> Đã đặt</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-100 border border-amber-300" /> Giữ chỗ</span>
         </div>
       </div>
 
@@ -953,8 +857,7 @@ function ScheduleView({
                     {branchCourts.map(c => {
                       const cell = scheduleMap[c.id]?.[time]
                       const isBooked = cell?.status === "booked"
-                      const isHold = cell?.status === "hold"
-                      const isEmpty = !isBooked && !isHold
+                      const isEmpty = !isBooked
                       const canBook = isEmpty && !past
                       return (
                         <td key={c.id} className="px-1 py-1">
@@ -968,11 +871,8 @@ function ScheduleView({
                                     isEmpty && !past && "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/20 dark:border-green-800 cursor-pointer hover:bg-green-100 hover:border-green-400 hover:shadow-sm",
                                     isEmpty && past && "bg-court-past text-slate-400 border border-slate-200",
                                     isBooked && "bg-primary/10 text-primary border border-primary/30 font-medium",
-                                    isHold && "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-800"
-                                  )}
-                                >
+                                  )}>
                                   {isBooked && <span className="truncate max-w-[110px]">{cell.bookedBy || "Đã đặt"}</span>}
-                                  {isHold && "Giữ chỗ"}
                                   {isEmpty && past && <Lock className="h-3 w-3" />}
                                   {isEmpty && !past && <Plus className="h-3 w-3 opacity-40" />}
                                 </div>
@@ -984,8 +884,6 @@ function ScheduleView({
                                     {cell.bookingId && <p className="text-muted-foreground">Mã: {cell.bookingId}</p>}
                                     <p className="text-muted-foreground">{time} - {endTimeStr}</p>
                                   </div>
-                                ) : isHold ? (
-                                  <p>Đang giữ chỗ</p>
                                 ) : past ? (
                                   <p>Đã qua giờ</p>
                                 ) : (
@@ -1170,20 +1068,19 @@ function ScheduleView({
         </DialogContent>
       </Dialog>
 
-      {/* Branch court usage cards */}
+      {/* Court usage cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {branchCourts.map(c => {
           const slots = scheduleMap[c.id] || {}
           const total = Object.keys(slots).length
           const booked = Object.values(slots).filter(v => v.status === "booked").length
-          const hold = Object.values(slots).filter(v => v.status === "hold").length
-          const pct = total > 0 ? Math.round(((booked + hold) / total) * 100) : 0
+          const pct = total > 0 ? Math.round((booked / total) * 100) : 0
           return (
             <Card key={c.id} className="hover:-translate-y-0.5 transition-all">
               <CardContent className="p-3">
                 <p className="text-sm font-semibold truncate">{c.name}</p>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-xs text-muted-foreground">{booked + hold}/{total} slot</span>
+                  <span className="text-xs text-muted-foreground">{booked}/{total} slot</span>
                   <Badge variant={pct > 80 ? "destructive" : pct > 50 ? "default" : "secondary"} className="text-[10px]">
                     {pct}%
                   </Badge>
@@ -1204,22 +1101,23 @@ function ScheduleView({
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════ */
 
-export default function AdminBookings() {
+export default function EmployeeBookings() {
+  const { user } = useAuth()
+
   // Data
   const [bookings, setBookings] = useState<BookingHistoryEntry[]>([])
   const [courtBookings, setCourtBookings] = useState<CourtBookingEntry[]>([])
   const [allCourts, setAllCourts] = useState<CourtItem[]>([])
   const [branches, setBranches] = useState<BranchItem[]>([])
+  const [employeeBranch, setEmployeeBranch] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
 
   // UI state
   const [activeTab, setActiveTab] = useState("all")
   const [viewMode, setViewMode] = useState<"list" | "schedule">("list")
   const [search, setSearch] = useState("")
-  const [branchFilter, setBranchFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [sortField, setSortField] = useState<"date" | "amount" | "createdAt">("createdAt")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
 
@@ -1232,23 +1130,54 @@ export default function AdminBookings() {
     const init = async () => {
       try {
         const [brRes, cRes] = await Promise.all([branchApi.getAll(), courtApi.getAll()])
-        setBranches(brRes.map((b: any) => ({ id: b.id, name: b.name, address: b.address })))
-        setAllCourts(cRes.map((c: any) => ({ id: c.id, name: c.name, branch: c.branchName || c.branch, branchId: c.branchId, type: c.type, price: c.price, indoor: c.indoor })))
+        const branchList: BranchItem[] = brRes.map((b: any) => ({ id: b.id, name: b.name, address: b.address }))
+        const courtList: CourtItem[] = cRes.map((c: any) => ({ id: c.id, name: c.name, branch: c.branchName || c.branch, branchId: c.branchId, type: c.type, price: c.price, indoor: c.indoor }))
+
+        // Determine employee's branch from warehouse
+        let empBranch: string | null = null
+        if (user?.warehouse) {
+          const area = user.warehouse.replace("Kho ", "")
+          const found = branchList.find(b => b.name.includes(area))
+          if (found) empBranch = found.name
+        }
+        setEmployeeBranch(empBranch)
+
+        // Filter branches/courts to employee's branch
+        if (empBranch) {
+          const myBranch = branchList.filter(b => b.name === empBranch)
+          setBranches(myBranch)
+          setAllCourts(courtList.filter(c => c.branch === empBranch))
+        } else {
+          setBranches(branchList)
+          setAllCourts(courtList)
+        }
       } catch {}
       await refreshData()
       setHydrated(true)
     }
     init()
-  }, [])
+  }, [user?.warehouse])
 
   const refreshData = useCallback(async () => {
     try {
       const res = await bookingApi.getAll({ limit: 500 })
-      const bks = (res.bookings || []).map(apiToBooking)
+      let bks: BookingHistoryEntry[] = (res.bookings || []).map(apiToBooking)
+      // Filter to employee's branch
+      const branchName = employeeBranch
+      if (branchName) {
+        bks = bks.filter(b => b.branch.includes(branchName))
+      }
       setBookings(bks)
       setCourtBookings(bookingsToSlots(bks))
     } catch {}
-  }, [])
+  }, [employeeBranch])
+
+  // Re-fetch when employeeBranch is determined
+  useEffect(() => {
+    if (employeeBranch) {
+      refreshData()
+    }
+  }, [employeeBranch, refreshData])
 
   // Status change
   const handleStatusChange = useCallback(async (id: string, newStatus: string) => {
@@ -1258,30 +1187,10 @@ export default function AdminBookings() {
     } catch { alert("Lỗi cập nhật trạng thái") }
   }, [refreshData])
 
-  // Delete booking
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      await bookingApi.delete(id)
-      await refreshData()
-    } catch { alert("Lỗi xoá booking") }
-  }, [refreshData])
-
-  // Batch status change
-  const handleBatchStatus = useCallback(async (newStatus: string) => {
-    try {
-      for (const id of selectedIds) {
-        await bookingApi.updateStatus(id, newStatus)
-      }
-      setSelectedIds([])
-      await refreshData()
-    } catch { alert("Lỗi cập nhật hàng loạt") }
-  }, [selectedIds, refreshData])
-
   // Save booking (create or edit)
   const handleSaveBooking = useCallback(async (booking: BookingHistoryEntry, isEdit: boolean) => {
     try {
       if (isEdit) {
-        // Update status via API (limited edit capability)
         await bookingApi.updateStatus(booking.id, booking.status)
       } else {
         const court = allCourts.find(c => c.name === booking.court)
@@ -1355,10 +1264,6 @@ export default function AdminBookings() {
       )
     }
 
-    if (branchFilter !== "all") {
-      result = result.filter(b => b.branch.includes(branchFilter))
-    }
-
     if (dateFilter) {
       const filterStr = `${dateFilter.getFullYear()}-${(dateFilter.getMonth() + 1).toString().padStart(2, '0')}-${dateFilter.getDate().toString().padStart(2, '0')}`
       result = result.filter(b => b.date === filterStr || b.date.includes(formatDateShort(dateFilter)))
@@ -1373,16 +1278,7 @@ export default function AdminBookings() {
     })
 
     return result
-  }, [bookings, activeTab, search, branchFilter, dateFilter, sortField, sortDir])
-
-  const allSelected = filtered.length > 0 && selectedIds.length === filtered.length
-  const toggleSelectAll = () => {
-    if (allSelected) setSelectedIds([])
-    else setSelectedIds(filtered.map(b => b.id))
-  }
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
-  }
+  }, [bookings, activeTab, search, dateFilter, sortField, sortDir])
 
   const toggleSort = (field: typeof sortField) => {
     if (sortField === field) setSortDir(d => d === "asc" ? "desc" : "asc")
@@ -1403,14 +1299,16 @@ export default function AdminBookings() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-2xl font-extrabold">Quản lý đặt sân</h1>
-          <p className="text-sm text-muted-foreground">Quản lý, theo dõi và điều phối booking</p>
+          <p className="text-sm text-muted-foreground">
+            {employeeBranch ? `Chi nhánh: ${employeeBranch}` : "Quản lý booking tại chi nhánh"}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={refreshData}>
             <RefreshCw className="h-4 w-4 mr-1" /> Làm mới
           </Button>
           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleOpenCreate}>
-            <Plus className="h-4 w-4 mr-2" /> Tạo booking
+            <Plus className="h-4 w-4 mr-2" /> Đặt sân
           </Button>
         </div>
       </div>
@@ -1433,7 +1331,7 @@ export default function AdminBookings() {
               <span className="p-2 rounded-lg bg-green-100 text-green-600"><DollarSign className="h-5 w-5" /></span>
             </div>
             <p className="font-serif text-2xl font-extrabold mt-3">{formatVND(kpis.totalRevenue)}</p>
-            <p className="text-sm text-muted-foreground">Tổng doanh thu</p>
+            <p className="text-sm text-muted-foreground">Doanh thu sân</p>
           </CardContent>
         </Card>
         <Card className={cn("hover:-translate-y-0.5 transition-all", kpis.pendingCount > 0 && "border-amber-200 bg-amber-50")}>
@@ -1461,10 +1359,10 @@ export default function AdminBookings() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50">
           <Button variant={viewMode === "list" ? "default" : "ghost"} size="sm" className="gap-1.5" onClick={() => setViewMode("list")}>
-            <LayoutList className="h-4 w-4" /> Danh sách
+            <CalendarDays className="h-4 w-4" /> Danh sách
           </Button>
           <Button variant={viewMode === "schedule" ? "default" : "ghost"} size="sm" className="gap-1.5" onClick={() => setViewMode("schedule")}>
-            <CalendarDays className="h-4 w-4" /> Lịch sân
+            <Building2 className="h-4 w-4" /> Lịch sân
           </Button>
         </div>
       </div>
@@ -1474,7 +1372,6 @@ export default function AdminBookings() {
         <ScheduleView
           allCourts={allCourts}
           courtBookings={courtBookings}
-          bookingHistory={bookings}
           branches={branches}
           onRefresh={refreshData}
         />
@@ -1512,19 +1409,6 @@ export default function AdminBookings() {
               )}
             </div>
 
-            <Select value={branchFilter} onValueChange={setBranchFilter}>
-              <SelectTrigger className="w-[200px] h-9">
-                <Building2 className="h-3.5 w-3.5 mr-1 shrink-0 text-muted-foreground" />
-                <SelectValue placeholder="Chi nhánh" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả chi nhánh</SelectItem>
-                {branches.map(b => (
-                  <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", dateFilter && "bg-primary/10 text-primary border-primary/30")}>
@@ -1541,48 +1425,6 @@ export default function AdminBookings() {
                 )}
               </PopoverContent>
             </Popover>
-
-            <div className="flex-1" />
-
-            {/* Batch actions */}
-            {selectedIds.length > 0 && (
-              <div className="flex items-center gap-2 rounded-lg bg-primary/5 px-3 py-1.5 border border-primary/20">
-                <span className="text-xs font-medium text-primary">{selectedIds.length} đã chọn</span>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline" className="h-7 text-xs">Xác nhận</Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="font-serif">Xác nhận {selectedIds.length} booking?</AlertDialogTitle>
-                      <AlertDialogDescription>Các booking đang ở trạng thái &quot;chờ&quot; sẽ được chuyển sang &quot;đã xác nhận&quot;.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Huỷ</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchStatus("confirmed")} className="bg-secondary hover:bg-secondary/90">Xác nhận</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="destructive" className="h-7 text-xs">Huỷ booking</Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="font-serif">Huỷ {selectedIds.length} booking?</AlertDialogTitle>
-                      <AlertDialogDescription>Hành động này không thể hoàn tác. Tất cả slot sân liên quan sẽ được giải phóng.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Quay lại</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchStatus("cancelled")} className="bg-red-600 hover:bg-red-700">Huỷ booking</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds([])}>Bỏ chọn</Button>
-              </div>
-            )}
-
-            <Button variant="outline" size="sm" className="h-9"><Download className="h-4 w-4 mr-1" /> Excel</Button>
           </div>
 
           {/* Empty state */}
@@ -1592,13 +1434,13 @@ export default function AdminBookings() {
                 <CalendarIcon className="h-12 w-12 text-muted-foreground/40 mb-4" />
                 <h3 className="font-serif font-bold text-lg">Chưa có booking nào</h3>
                 <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                  {search || branchFilter !== "all" || dateFilter
+                  {search || dateFilter
                     ? "Không tìm thấy booking phù hợp với bộ lọc. Thử thay đổi điều kiện tìm kiếm."
-                    : "Khi khách hàng đặt sân, booking sẽ xuất hiện ở đây. Hoặc bạn có thể tạo booking thủ công."}
+                    : "Khi khách hàng đặt sân, booking sẽ xuất hiện ở đây. Hoặc bạn có thể đặt sân trực tiếp."}
                 </p>
-                {!search && branchFilter === "all" && !dateFilter && (
+                {!search && !dateFilter && (
                   <Button className="mt-4" onClick={handleOpenCreate}>
-                    <Plus className="h-4 w-4 mr-2" /> Tạo booking đầu tiên
+                    <Plus className="h-4 w-4 mr-2" /> Đặt sân đầu tiên
                   </Button>
                 )}
               </CardContent>
@@ -1612,9 +1454,6 @@ export default function AdminBookings() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10">
-                        <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} />
-                      </TableHead>
                       <TableHead className="text-xs">Mã booking</TableHead>
                       <TableHead className="text-xs">Khách hàng</TableHead>
                       <TableHead className="text-xs">Sân</TableHead>
@@ -1627,7 +1466,7 @@ export default function AdminBookings() {
                       </TableHead>
                       <TableHead className="text-xs">Thanh toán</TableHead>
                       <TableHead className="text-xs">Trạng thái</TableHead>
-                      <TableHead className="text-xs w-[160px]">Thao tác</TableHead>
+                      <TableHead className="text-xs w-[120px]">Thao tác</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1637,16 +1476,9 @@ export default function AdminBookings() {
                           className={cn(
                             "cursor-pointer hover:bg-muted/50 transition-colors",
                             idx % 2 !== 0 && "bg-muted/20",
-                            selectedIds.includes(booking.id) && "bg-primary/5"
                           )}
                           onClick={() => setExpandedRow(expandedRow === booking.id ? null : booking.id)}
                         >
-                          <TableCell onClick={e => e.stopPropagation()}>
-                            <Checkbox
-                              checked={selectedIds.includes(booking.id)}
-                              onCheckedChange={() => toggleSelect(booking.id)}
-                            />
-                          </TableCell>
                           <TableCell className="font-mono text-xs text-primary font-semibold">{booking.bookingCode}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -1660,10 +1492,7 @@ export default function AdminBookings() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div>
-                              <p className="text-sm">{booking.court}</p>
-                              <p className="text-xs text-muted-foreground">{booking.branch}</p>
-                            </div>
+                            <p className="text-sm">{booking.court}</p>
                           </TableCell>
                           <TableCell className="text-sm">{booking.date}</TableCell>
                           <TableCell className="text-sm">{booking.time}</TableCell>
@@ -1700,32 +1529,12 @@ export default function AdminBookings() {
                                     <Eye className="h-3.5 w-3.5" />
                                   </Button>
                                 </SheetTrigger>
-                                <BookingDetailSheet booking={booking} onStatusChange={handleStatusChange} onEdit={handleOpenEdit} />
+                                <BookingDetailSheet booking={booking} onStatusChange={handleStatusChange} />
                               </Sheet>
                               {/* Edit */}
                               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenEdit(booking)}>
                                 <Edit2 className="h-3.5 w-3.5" />
                               </Button>
-                              {/* Delete */}
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:bg-red-50">
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle className="font-serif">Xoá booking?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Bạn có chắc muốn xoá booking <strong>{booking.bookingCode}</strong>? Hành động này không thể hoàn tác và sẽ giải phóng slot sân.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Quay lại</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleDelete(booking.id)} className="bg-red-600 hover:bg-red-700">Xoá</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
                               {/* Expand toggle */}
                               <button className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted" onClick={(e) => { e.stopPropagation(); setExpandedRow(expandedRow === booking.id ? null : booking.id) }}>
                                 {expandedRow === booking.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -1735,16 +1544,12 @@ export default function AdminBookings() {
                         </TableRow>
                         {expandedRow === booking.id && (
                           <TableRow key={`${booking.id}-expanded`}>
-                            <TableCell colSpan={10} className="bg-muted/30 p-4">
+                            <TableCell colSpan={9} className="bg-muted/30 p-4">
                               <div className="flex items-center gap-8">
                                 <div className="h-24 w-24 bg-muted rounded-lg flex items-center justify-center border-2 border-dashed border-border">
                                   <QrCode className="h-8 w-8 text-muted-foreground" />
                                 </div>
-                                <div className="flex-1 grid grid-cols-4 gap-4">
-                                  <div>
-                                    <p className="text-xs text-muted-foreground">Chi nhánh</p>
-                                    <p className="text-sm font-medium">{booking.branch}</p>
-                                  </div>
+                                <div className="flex-1 grid grid-cols-3 gap-4">
                                   <div>
                                     <p className="text-xs text-muted-foreground">Số người</p>
                                     <p className="text-sm font-medium">{booking.people} người</p>
@@ -1774,7 +1579,7 @@ export default function AdminBookings() {
           {filtered.length > 0 && (
             <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
               <span>Hiển thị {filtered.length} / {bookings.length} booking</span>
-              <span>Tổng doanh thu (đã lọc): <strong className="text-foreground">{formatVND(filtered.filter(b => b.status !== "cancelled").reduce((s, b) => s + b.amount, 0))}</strong></span>
+              <span>Doanh thu (đã lọc): <strong className="text-foreground">{formatVND(filtered.filter(b => b.status !== "cancelled").reduce((s, b) => s + b.amount, 0))}</strong></span>
             </div>
           )}
         </>

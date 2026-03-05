@@ -216,7 +216,8 @@ BADMINTONHUB/
 │
 ├── lib/                          # Utilities & context
 │   ├── auth-context.tsx          # Authentication provider
-│   ├── mock-data.ts              # Dữ liệu mẫu & helper functions
+│   ├── cart-context.tsx          # Shopping cart provider
+│   ├── inventory-context.tsx     # Inventory state provider
 │   └── utils.ts                  # cn() utility (clsx + tailwind-merge)
 │
 ├── hooks/                        # Custom React hooks

@@ -6,55 +6,95 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { BookingStatusBadge, PaymentBadge } from "@/components/shared"
-import { TrendingUp, TrendingDown, CalendarCheck, DollarSign, Activity, AlertTriangle, Eye } from "lucide-react"
+import { TrendingUp, TrendingDown, CalendarCheck, DollarSign, Activity, AlertTriangle, Eye, Loader2 } from "lucide-react"
 import { formatVND } from "@/lib/utils"
-import { bookingApi, inventoryApi, ApiBooking } from "@/lib/api"
+import { bookingApi, inventoryApi, courtApi, ApiBooking } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { AreaChart, Area, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
-const kpis = [
-  { title: "Doanh thu hôm nay", value: "12.450.000đ", change: "+12%", up: true, icon: <DollarSign className="h-5 w-5" /> },
-  { title: "Booking hôm nay", value: "48", change: "+8%", up: true, icon: <CalendarCheck className="h-5 w-5" /> },
-  { title: "Công suất sân", value: "78%", change: "-3%", up: false, icon: <Activity className="h-5 w-5" />, progress: 78 },
-  { title: "Cảnh báo tồn kho", value: "3", change: "", up: false, icon: <AlertTriangle className="h-5 w-5" />, alert: true },
-]
-
-const revenueData = [
-  { day: "T2", booking: 8200000, shop: 3100000 },
-  { day: "T3", booking: 9500000, shop: 2800000 },
-  { day: "T4", booking: 7800000, shop: 4200000 },
-  { day: "T5", booking: 11200000, shop: 3600000 },
-  { day: "T6", booking: 13500000, shop: 5100000 },
-  { day: "T7", booking: 18200000, shop: 6800000 },
-  { day: "CN", booking: 16800000, shop: 5400000 },
-]
-
-const courtTypeData = [
-  { name: "Premium", value: 45, color: "#FF6B35" },
-  { name: "Standard", value: 35, color: "#1F6B3A" },
-  { name: "VIP", value: 20, color: "#0F172A" },
-]
+const CHART_COLORS = ["#FF6B35", "#1F6B3A", "#0F172A", "#6366f1", "#ec4899"]
 
 export default function AdminDashboard() {
   const [recentBookings, setRecentBookings] = useState<ApiBooking[]>([])
+  const [allBookings, setAllBookings] = useState<ApiBooking[]>([])
   const [stockAlerts, setStockAlerts] = useState<any[]>([])
+  const [courts, setCourts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    bookingApi.getAll({ limit: 5 }).then(res => {
-      setRecentBookings(res.bookings || [])
-    }).catch(() => {})
-
-    inventoryApi.getLowStock().then(res => {
-      if (res.success && res.data) setStockAlerts(res.data)
-    }).catch(() => {})
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        const [bookingsRes, allBookingsRes, lowStockRes, courtsRes] = await Promise.all([
+          bookingApi.getAll({ limit: 5 }).catch(() => ({ bookings: [] })),
+          bookingApi.getAll({}).catch(() => ({ bookings: [] })),
+          inventoryApi.getLowStock().catch(() => ({ success: false, data: [] })),
+          courtApi.getAll().catch(() => ({ success: false, data: [] })),
+        ])
+        setRecentBookings(bookingsRes.bookings || [])
+        setAllBookings(allBookingsRes.bookings || [])
+        if (lowStockRes.success && lowStockRes.data) setStockAlerts(lowStockRes.data)
+        if (courtsRes.success && courtsRes.data) setCourts(courtsRes.data)
+      } catch {}
+      setLoading(false)
+    }
+    fetchData()
   }, [])
+
+  // Compute KPIs from real data
+  const todayStr = new Date().toISOString().split("T")[0]
+  const todayBookings = useMemo(() => allBookings.filter(b => (b.bookingDate || "").split("T")[0] === todayStr), [allBookings, todayStr])
+  const todayRevenue = useMemo(() => todayBookings.reduce((s, b) => s + (b.amount || 0), 0), [todayBookings])
+  const totalCourts = courts.length
+  const activeCourts = useMemo(() => courts.filter((c: any) => c.status === "active").length, [courts])
+  const courtCapacity = totalCourts > 0 ? Math.round((activeCourts / totalCourts) * 100) : 0
+
+  const kpis = [
+    { title: "Doanh thu hôm nay", value: formatVND(todayRevenue), change: "", up: true, icon: <DollarSign className="h-5 w-5" /> },
+    { title: "Booking hôm nay", value: String(todayBookings.length), change: "", up: true, icon: <CalendarCheck className="h-5 w-5" /> },
+    { title: "Công suất sân", value: `${courtCapacity}%`, change: "", up: false, icon: <Activity className="h-5 w-5" />, progress: courtCapacity },
+    { title: "Cảnh báo tồn kho", value: String(stockAlerts.length), change: "", up: false, icon: <AlertTriangle className="h-5 w-5" />, alert: stockAlerts.length > 0 },
+  ]
+
+  // Compute revenue for the last 7 calendar days
+  const revenueData = useMemo(() => {
+    const dayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"]
+    const today = new Date()
+    const result: { day: string; booking: number; shop: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().split("T")[0]
+      const label = `${dayLabels[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`
+      const revenue = allBookings
+        .filter(b => (b.bookingDate || "").split("T")[0] === dateStr)
+        .reduce((s, b) => s + (b.amount || 0), 0)
+      result.push({ day: label, booking: revenue, shop: 0 })
+    }
+    return result
+  }, [allBookings])
+
+  // Compute court type distribution from real courts
+  const courtTypeData = useMemo(() => {
+    const typeCount: Record<string, number> = {}
+    courts.forEach((c: any) => {
+      const type = c.courtType || c.court_type || "Standard"
+      typeCount[type] = (typeCount[type] || 0) + 1
+    })
+    const total = courts.length || 1
+    return Object.entries(typeCount).map(([name, count], i) => ({
+      name,
+      value: Math.round((count / total) * 100),
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
+  }, [courts])
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-2xl font-extrabold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">26/02/2026</p>
+          <p className="text-sm text-muted-foreground">{new Date().toLocaleDateString("vi-VN")}</p>
         </div>
       </div>
 

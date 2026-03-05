@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Check, Minus, Plus, Clock, CreditCard, Wallet, Building2, Smartphone, Lock, Loader2, AlertCircle, UserPlus } from "lucide-react"
+import { Check, Minus, Plus, CreditCard, Wallet, Building2, Smartphone, Lock, Loader2, AlertCircle, UserPlus } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
@@ -63,26 +63,6 @@ function Stepper({ step }: { step: number }) {
   )
 }
 
-function CountdownBadge() {
-  const [seconds, setSeconds] = useState(600) // 10 minutes
-  useEffect(() => {
-    const t = setInterval(() => setSeconds(s => Math.max(0, s - 1)), 1000)
-    return () => clearInterval(t)
-  }, [])
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
-  const s = (seconds % 60).toString().padStart(2, '0')
-  return (
-    <Badge variant="outline" className={cn(
-      "gap-1 font-mono",
-      seconds <= 60
-        ? "bg-red-50 text-red-700 border-red-200"
-        : "bg-amber-50 text-amber-700 border-amber-200"
-    )}>
-      <Clock className="h-3 w-3" /> {m}:{s}
-    </Badge>
-  )
-}
-
 export default function BookingPage() {
   const router = useRouter()
   const { user } = useAuth()
@@ -107,6 +87,16 @@ export default function BookingPage() {
   const [contactAddress, setContactAddress] = useState(user?.address || "")
   const [otherName, setOtherName] = useState("")
   const [otherPhone, setOtherPhone] = useState("")
+
+  // Sync contact info when user data loads asynchronously
+  useEffect(() => {
+    if (user) {
+      setContactName(prev => prev || (user.fullName === "Khách" ? "" : (user.fullName || "")))
+      setContactPhone(prev => prev || user.phone || "")
+      setContactEmail(prev => prev || user.email || "")
+      setContactAddress(prev => prev || user.address || "")
+    }
+  }, [user])
 
   // Validation
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -172,6 +162,23 @@ export default function BookingPage() {
     }
   }
 
+  // Parse booking date helper
+  const parseDates = () => {
+    const dates = booking!.date.split(',').map(d => d.trim())
+    const firstDate = dates[0]
+    const [dayStr, monthStr] = firstDate.split('/')
+    const year = new Date().getFullYear()
+    const bookingDate = `${year}-${monthStr.padStart(2, '0')}-${dayStr.padStart(2, '0')}`
+    const [timeStart, timeEnd] = booking!.timeRange.split(' - ').map(t => t.trim())
+    return { bookingDate, timeStart, timeEnd }
+  }
+
+  // Go to payment step — just validate and proceed
+  const handleGoToPayment = () => {
+    if (!validateStep1()) return
+    setStep(2)
+  }
+
   const handleSubmit = async () => {
     // Block guests with incomplete info
     if (isGuest && !isGuestInfoComplete) {
@@ -182,22 +189,13 @@ export default function BookingPage() {
     setSubmitting(true)
 
     try {
-      // Parse booking dates for API
-      // booking.date is like "4/3, 5/3" and booking.timeRange is like "08:00 - 10:00"
-      const dates = booking.date.split(',').map(d => d.trim())
-      const firstDate = dates[0] // e.g. "4/3"
-      const [dayStr, monthStr] = firstDate.split('/')
-      const year = new Date().getFullYear()
-      const bookingDate = `${year}-${monthStr.padStart(2, '0')}-${dayStr.padStart(2, '0')}`
-
-      const [timeStart, timeEnd] = booking.timeRange.split(' - ').map(t => t.trim())
-
-      const result = await bookingApi.create({
-        court_id: booking.courtId,
+      const { bookingDate, timeStart, timeEnd } = parseDates()
+      const result = await bookingApi.createHold({
+        court_id: booking!.courtId,
         booking_date: bookingDate,
         time_start: timeStart,
         time_end: timeEnd,
-        slots: booking.slotCount,
+        slots: booking!.slotCount,
         customer_name: contactName || 'Khách',
         customer_phone: contactPhone,
         amount: total,
@@ -206,30 +204,29 @@ export default function BookingPage() {
       })
 
       if (result.success && result.booking) {
-        // Save completed booking to localStorage for the success page
+        // Tất cả đều giữ trạng thái "hold" — chờ admin/nhân viên xác nhận thanh toán
         const completedBooking = {
-          id: result.booking.id,
-          courtName: booking.courtName,
-          courtType: booking.courtType,
-          branch: booking.branch,
-          courtAddress: booking.courtAddress,
-          courtLat: booking.courtLat,
-          courtLng: booking.courtLng,
-          date: booking.date,
-          timeRange: booking.timeRange,
+          id: result.booking.bookingCode || result.booking.id,
+          bookingId: result.booking.id,
+          courtName: booking!.courtName,
+          courtType: booking!.courtType,
+          branch: booking!.branch,
+          courtAddress: booking!.courtAddress,
+          courtLat: booking!.courtLat,
+          courtLng: booking!.courtLng,
+          date: booking!.date,
+          timeRange: booking!.timeRange,
           people,
           amount: total,
           paymentMethod,
           contact: { name: contactName, phone: contactPhone, email: contactEmail, address: contactAddress },
           racketRental,
           note,
+          awaitingPayment: true,
         }
         localStorage.setItem('completedBooking', JSON.stringify(completedBooking))
         localStorage.removeItem('pendingBooking')
-
-        setTimeout(() => {
-          router.push('/booking/success')
-        }, 2000)
+        setTimeout(() => router.push('/booking/success'), 1500)
       } else {
         alert(result.error || "Đặt sân thất bại. Vui lòng thử lại.")
         setSubmitting(false)
@@ -274,10 +271,7 @@ export default function BookingPage() {
                   )}
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="font-serif text-lg">Thông tin đặt sân</CardTitle>
-                        <CountdownBadge />
-                      </div>
+                      <CardTitle className="font-serif text-lg">Thông tin đặt sân</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4 text-sm">
@@ -478,9 +472,7 @@ export default function BookingPage() {
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={() => setStep(0)}>Quay lại</Button>
                     <Button
-                      onClick={() => {
-                        if (validateStep1()) setStep(2)
-                      }}
+                      onClick={handleGoToPayment}
                       className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
                     >
                       Tiếp tục
@@ -569,6 +561,11 @@ export default function BookingPage() {
                           <p>STK: 1234567890</p>
                           <p>Chủ TK: CÔNG TY TNHH BADMINTONHUB</p>
                           <p>Nội dung: <span className="font-mono font-bold text-primary">Đặt sân {booking.courtName}</span></p>
+                          <div className="mt-3 p-3 rounded-md bg-amber-50 border border-amber-200">
+                            <p className="text-xs text-amber-800">
+                              <strong>Lưu ý:</strong> Sau khi chuyển khoản, vui lòng thông báo cho nhân viên để xác nhận thanh toán.
+                            </p>
+                          </div>
                         </div>
                       )}
                     </CardContent>
@@ -589,7 +586,7 @@ export default function BookingPage() {
                       className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold gap-2"
                     >
                       {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                      {submitting ? "Đang xử lý..." : `Thanh toán ${formatVND(total)}`}
+                      {submitting ? "Đang xử lý..." : `Xác nhận đặt sân ${formatVND(total)}`}
                     </Button>
                   </div>
                 </>
@@ -664,7 +661,7 @@ export default function BookingPage() {
                   <Button
                     onClick={() => {
                       if (step === 0) setStep(1)
-                      else if (step === 1 && validateStep1()) setStep(2)
+                      else if (step === 1) handleGoToPayment()
                     }}
                     className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
                   >
@@ -682,7 +679,7 @@ export default function BookingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 backdrop-blur-sm">
           <Card className="p-8 flex flex-col items-center gap-4">
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            <p className="font-semibold">Đang xử lý thanh toán...</p>
+            <p className="font-semibold">Đang xử lý đặt sân...</p>
             <p className="text-sm text-muted-foreground">Vui lòng không đóng trang này</p>
           </Card>
         </div>

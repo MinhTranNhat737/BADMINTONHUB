@@ -235,7 +235,7 @@ localStorage keys:
   window "storage" event → tự động cập nhật khi tab khác thay đổi dữ liệu
 
 Reset (resetAll):
-  Xóa toàn bộ localStorage keys → trả về dữ liệu mặc định (mock-data)
+  Xóa toàn bộ localStorage keys → trả về dữ liệu mặc định từ API
 ```
 
 ---

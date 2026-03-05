@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,9 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Progress } from "@/components/ui/progress"
 import { formatVND } from "@/lib/utils"
 import { cn } from "@/lib/utils"
+import { bookingApi, courtApi, productApi, salesOrderApi } from "@/lib/api"
 import {
   Download, TrendingUp, TrendingDown, DollarSign, CalendarCheck,
-  Activity, ShoppingBag
+  Activity, ShoppingBag, Loader2
 } from "lucide-react"
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -20,87 +21,165 @@ import {
 } from "recharts"
 
 const datePresets = ["Hôm nay", "7 ngày", "30 ngày", "Tháng này"]
-
-const revenueKPIs = [
-  { title: "Tổng doanh thu", value: "285.600.000đ", change: "+18%", up: true, icon: <DollarSign className="h-5 w-5" /> },
-  { title: "Doanh thu đặt sân", value: "198.400.000đ", change: "+15%", up: true, icon: <CalendarCheck className="h-5 w-5" /> },
-  { title: "Doanh thu shop", value: "87.200.000đ", change: "+24%", up: true, icon: <ShoppingBag className="h-5 w-5" /> },
-  { title: "Tỷ lệ tăng trưởng", value: "18%", change: "+3%", up: true, icon: <Activity className="h-5 w-5" /> },
-]
-
-const weeklyRevenue = [
-  { day: "T2", booking: 28200000, shop: 11100000 },
-  { day: "T3", booking: 32500000, shop: 9800000 },
-  { day: "T4", booking: 27800000, shop: 14200000 },
-  { day: "T5", booking: 35200000, shop: 12600000 },
-  { day: "T6", booking: 42500000, shop: 15100000 },
-  { day: "T7", booking: 51200000, shop: 18800000 },
-  { day: "CN", booking: 46800000, shop: 16400000 },
-]
-
-const topCourts = [
-  { name: "Sân B2 - VIP", revenue: 52000000, bookings: 208 },
-  { name: "Sân A1 - Premium", revenue: 45600000, bookings: 285 },
-  { name: "Sân B1 - Premium", revenue: 41200000, bookings: 229 },
-  { name: "Sân C2 - Premium", revenue: 33800000, bookings: 225 },
-  { name: "Sân A2 - Standard", revenue: 28400000, bookings: 237 },
-]
-
-const paymentMethods = [
-  { name: "MoMo", value: 35, color: "#d63384" },
-  { name: "VNPay", value: 30, color: "#0d6efd" },
-  { name: "Bank", value: 20, color: "#0dcaf0" },
-  { name: "Wallet", value: 15, color: "#198754" },
-]
-
-const topProducts = [
-  { name: "Vợt Yonex Astrox 88D Pro", qty: 42, revenue: 192780000 },
-  { name: "Giày Yonex Power Cushion 65Z3", qty: 28, revenue: 92120000 },
-  { name: "Vợt Victor Thruster K 9900", qty: 35, revenue: 136150000 },
-  { name: "Cước Yonex BG65", qty: 320, revenue: 48000000 },
-  { name: "Túi vợt Lining ABJT059", qty: 18, revenue: 16020000 },
-]
-
-const hourlyDistribution = [
-  { hour: "06:00", bookings: 12 },
-  { hour: "07:00", bookings: 25 },
-  { hour: "08:00", bookings: 38 },
-  { hour: "09:00", bookings: 30 },
-  { hour: "10:00", bookings: 20 },
-  { hour: "11:00", bookings: 15 },
-  { hour: "12:00", bookings: 8 },
-  { hour: "13:00", bookings: 10 },
-  { hour: "14:00", bookings: 15 },
-  { hour: "15:00", bookings: 22 },
-  { hour: "16:00", bookings: 35 },
-  { hour: "17:00", bookings: 48 },
-  { hour: "18:00", bookings: 55 },
-  { hour: "19:00", bookings: 52 },
-  { hour: "20:00", bookings: 45 },
-  { hour: "21:00", bookings: 30 },
-]
-
-// Heatmap data for calendar
-function generateHeatmapData() {
-  const data: { day: number; weekday: number; occupancy: number }[] = []
-  for (let d = 1; d <= 28; d++) {
-    const weekday = (d - 1) % 7
-    const occupancy = Math.floor(Math.random() * 100)
-    data.push({ day: d, weekday, occupancy })
-  }
-  return data
-}
-
-function getHeatmapColor(occupancy: number) {
-  if (occupancy <= 30) return "bg-green-200 text-green-900"
-  if (occupancy <= 60) return "bg-amber-200 text-amber-900"
-  if (occupancy <= 85) return "bg-orange-300 text-orange-900"
-  return "bg-red-400 text-red-50"
-}
+const CHART_COLORS = ["#d63384", "#0d6efd", "#0dcaf0", "#198754", "#FF6B35"]
 
 export default function AdminReports() {
-  const [activePreset, setActivePreset] = useState("30 ngay")
-  const heatmapData = generateHeatmapData()
+  const [activePreset, setActivePreset] = useState("30 ngày")
+  const [bookings, setBookings] = useState<any[]>([])
+  const [courts, setCourts] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [salesOrders, setSalesOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        const [bRes, cRes, pRes, soRes] = await Promise.all([
+          bookingApi.getAll({}).catch(() => ({ bookings: [] })),
+          courtApi.getAll().catch(() => ({ success: false, data: [] })),
+          productApi.getAll().catch(() => ({ success: false, data: [] })),
+          salesOrderApi.getAll().catch(() => ({ success: false, data: [] })),
+        ])
+        setBookings(bRes.bookings || [])
+        if (cRes.success && cRes.data) setCourts(cRes.data)
+        if (pRes.success && pRes.data) setProducts(pRes.data)
+        if (soRes.success && soRes.data) setSalesOrders(soRes.data)
+      } catch {}
+      setLoading(false)
+    }
+    fetchData()
+  }, [])
+
+  // Compute KPIs from real data
+  const bookingRevenue = useMemo(() => bookings.reduce((s, b) => s + (b.amount || 0), 0), [bookings])
+  const shopRevenue = useMemo(() => salesOrders.reduce((s, o) => s + (parseFloat(o.final_total) || parseFloat(o.total) || 0), 0), [salesOrders])
+  const totalRevenue = bookingRevenue + shopRevenue
+
+  const revenueKPIs = [
+    { title: "Tổng doanh thu", value: formatVND(totalRevenue), change: "", up: true, icon: <DollarSign className="h-5 w-5" /> },
+    { title: "Doanh thu đặt sân", value: formatVND(bookingRevenue), change: "", up: true, icon: <CalendarCheck className="h-5 w-5" /> },
+    { title: "Doanh thu shop", value: formatVND(shopRevenue), change: "", up: true, icon: <ShoppingBag className="h-5 w-5" /> },
+    { title: "Tổng bookings", value: String(bookings.length), change: "", up: true, icon: <Activity className="h-5 w-5" /> },
+  ]
+
+  // Compute weekly revenue from bookings (last 7 calendar days)
+  const weeklyRevenue = useMemo(() => {
+    const dayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"]
+    const today = new Date()
+    const result: { day: string; booking: number; shop: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().split("T")[0]
+      const label = `${dayLabels[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`
+      const bookingRev = bookings
+        .filter((b: any) => ((b.bookingDate || "").split("T")[0]) === dateStr)
+        .reduce((s: number, b: any) => s + (b.amount || 0), 0)
+      const shopRev = salesOrders
+        .filter((o: any) => ((o.created_at || "").split("T")[0]) === dateStr)
+        .reduce((s: number, o: any) => s + (parseFloat(o.final_total) || parseFloat(o.total) || 0), 0)
+      result.push({ day: label, booking: bookingRev, shop: shopRev })
+    }
+    return result
+  }, [bookings, salesOrders])
+
+  // Top courts by revenue
+  const topCourts = useMemo(() => {
+    const courtRevMap: Record<string, { revenue: number; bookings: number }> = {}
+    bookings.forEach((b: any) => {
+      const name = b.courtName || `Sân ${b.courtId}`
+      if (!courtRevMap[name]) courtRevMap[name] = { revenue: 0, bookings: 0 }
+      courtRevMap[name].revenue += b.amount || 0
+      courtRevMap[name].bookings += 1
+    })
+    return Object.entries(courtRevMap)
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+  }, [bookings])
+
+  // Payment methods distribution (from bookings)
+  const paymentMethods = useMemo(() => {
+    const methodMap: Record<string, number> = {}
+    bookings.forEach((b: any) => {
+      const method = b.paymentMethod || "Khác"
+      methodMap[method] = (methodMap[method] || 0) + 1
+    })
+    const total = bookings.length || 1
+    return Object.entries(methodMap).map(([name, count], i) => ({
+      name,
+      value: Math.round((count / total) * 100),
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
+  }, [bookings])
+
+  // Top products (from sales orders)
+  const topProducts = useMemo(() => {
+    const prodMap: Record<string, { qty: number; revenue: number }> = {}
+    salesOrders.forEach((o: any) => {
+      const items = o.items || []
+      items.forEach((item: any) => {
+        const name = item.productName || item.name || item.sku
+        if (!prodMap[name]) prodMap[name] = { qty: 0, revenue: 0 }
+        prodMap[name].qty += item.quantity || 0
+        prodMap[name].revenue += (item.quantity || 0) * (item.price || 0)
+      })
+    })
+    return Object.entries(prodMap)
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+  }, [salesOrders])
+
+  // Hourly distribution from bookings
+  const hourlyDistribution = useMemo(() => {
+    const hourMap: Record<string, number> = {}
+    for (let h = 6; h <= 21; h++) {
+      hourMap[`${h.toString().padStart(2, "0")}:00`] = 0
+    }
+    bookings.forEach((b: any) => {
+      const startTime = b.timeStart
+      if (startTime) {
+        const hour = startTime.substring(0, 5)
+        if (hourMap[hour] !== undefined) hourMap[hour]++
+      }
+    })
+    return Object.entries(hourMap).map(([hour, count]) => ({ hour, bookings: count }))
+  }, [bookings])
+
+  // Heatmap data from real bookings
+  const heatmapData = useMemo(() => {
+    const now = new Date()
+    const year = now.getFullYear(), month = now.getMonth()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const dateCounts: Record<number, number> = {}
+    bookings.forEach((b: any) => {
+      if (b.bookingDate) {
+        const d = new Date(b.bookingDate)
+        if (d.getMonth() === month && d.getFullYear() === year) {
+          dateCounts[d.getDate()] = (dateCounts[d.getDate()] || 0) + 1
+        }
+      }
+    })
+    const maxCount = Math.max(...Object.values(dateCounts), 1)
+    const data: { day: number; weekday: number; occupancy: number }[] = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const weekday = new Date(year, month, d).getDay()
+      const occupancy = Math.round(((dateCounts[d] || 0) / maxCount) * 100)
+      data.push({ day: d, weekday, occupancy })
+    }
+    return data
+  }, [bookings])
+
+  function getHeatmapColor(occupancy: number) {
+    if (occupancy <= 30) return "bg-green-200 text-green-900"
+    if (occupancy <= 60) return "bg-amber-200 text-amber-900"
+    if (occupancy <= 85) return "bg-orange-300 text-orange-900"
+    return "bg-red-400 text-red-50"
+  }
+
+  const currentMonthLabel = `${new Date().getMonth() + 1}/${new Date().getFullYear()}`
 
   return (
     <div>
@@ -161,7 +240,7 @@ export default function AdminReports() {
           {/* Main Chart */}
           <Card>
             <CardHeader>
-              <CardTitle className="font-serif text-lg">Doanh thu 7 ngay</CardTitle>
+              <CardTitle className="font-serif text-lg">Doanh thu 7 ngày</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={320}>
@@ -272,7 +351,7 @@ export default function AdminReports() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="font-serif text-lg">Công suất sân - Tháng 2/2026</CardTitle>
+                <CardTitle className="font-serif text-lg">Công suất sân - Tháng {currentMonthLabel}</CardTitle>
                 <div className="flex items-center gap-3 text-xs">
                   <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-green-200" /> 0-30%</span>
                   <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-amber-200" /> 31-60%</span>

@@ -170,7 +170,7 @@ CREATE TABLE bookings (
     people          INT DEFAULT 2,                  -- Số người chơi
     amount          DECIMAL(12,0) NOT NULL,          -- Tổng tiền (VNĐ)
     status          VARCHAR(15) NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending','confirmed','playing','completed','cancelled')),
+                    CHECK (status IN ('pending','confirmed','hold','playing','completed','cancelled')),
     payment_method  VARCHAR(30) NOT NULL,           -- "cash", "bank_transfer", "momo"...
     customer_name   VARCHAR(100) NOT NULL,
     customer_phone  VARCHAR(15) NOT NULL,

@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
-import { authApi, setToken, getToken } from "@/lib/api"
+import { authApi, setToken, getToken, inventoryApi } from "@/lib/api"
 
 export interface User {
   id: string
@@ -54,12 +54,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const SESSION_KEY = "badmintonhub_session"
 
-// Warehouse ID → tên kho mapping
-const WAREHOUSE_NAMES: Record<number, string> = {
-  1: "Kho Cầu Giấy",
-  2: "Kho Thanh Xuân",
-  3: "Kho Long Biên",
-  4: "Kho Hub",
+// Warehouse ID → tên kho mapping (fetched from API, cached)
+let warehouseNameCache: Record<number, string> = {}
+async function ensureWarehouseNames() {
+  if (Object.keys(warehouseNameCache).length > 0) return
+  try {
+    const res = await inventoryApi.getWarehouses()
+    if (res.success && res.data) {
+      for (const w of res.data) warehouseNameCache[w.id] = w.name
+    }
+  } catch {}
 }
 
 function apiUserToUser(apiUser: any): User {
@@ -74,7 +78,7 @@ function apiUserToUser(apiUser: any): User {
     dateOfBirth: apiUser.dateOfBirth || undefined,
     role: apiUser.role,
     warehouseId: apiUser.warehouseId,
-    warehouse: apiUser.warehouseId ? WAREHOUSE_NAMES[apiUser.warehouseId] || undefined : undefined,
+    warehouse: apiUser.warehouseId ? warehouseNameCache[apiUser.warehouseId] || undefined : undefined,
     createdAt: apiUser.createdAt?.split("T")[0] || "",
   }
 }
@@ -88,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const restore = async () => {
       const token = getToken()
       if (token) {
+        await ensureWarehouseNames()
         const res = await authApi.getProfile()
         if (res.success && res.user) {
           setUser(apiUserToUser(res.user))
@@ -105,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const res = await authApi.login(username, password)
     if (res.success && res.user) {
+      await ensureWarehouseNames()
       const u = apiUserToUser(res.user)
       setUser(u)
       localStorage.setItem(SESSION_KEY, u.id)

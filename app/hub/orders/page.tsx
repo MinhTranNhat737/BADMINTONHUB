@@ -109,7 +109,8 @@ function OrderDetailDialog({ order, onApprove, onStartDelivery, onDeliver, onCan
     ? getWarehousesByDistance(order.customerCoords.lat, order.customerCoords.lng)
     : []
 
-  const ALL_WAREHOUSES = ["Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên", "Kho Hub"]
+  const { warehouses: warehouseList } = useInventory()
+  const ALL_WAREHOUSES = warehouseList.map(w => w.name)
 
   // Build productId → sku mapping from inventory data
   const productIdToSku: Record<number, string> = {}
@@ -529,7 +530,7 @@ function OrderDetailDialog({ order, onApprove, onStartDelivery, onDeliver, onCan
 
 export default function HubOrdersPage() {
   const { user } = useAuth()
-  const { inventory } = useInventory()
+  const { inventory, warehouses: ctxWarehouses } = useInventory()
   const [orders, setOrders] = useState<Order[]>([])
   const [search, setSearch] = useState("")
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -762,10 +763,9 @@ export default function HubOrdersPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tất cả kho</SelectItem>
-            <SelectItem value="Kho Cầu Giấy">Kho Cầu Giấy</SelectItem>
-            <SelectItem value="Kho Thanh Xuân">Kho Thanh Xuân</SelectItem>
-            <SelectItem value="Kho Long Biên">Kho Long Biên</SelectItem>
-            <SelectItem value="Kho Hub">Kho Hub</SelectItem>
+            {ctxWarehouses.map(w => (
+              <SelectItem key={w.name} value={w.name}>{w.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

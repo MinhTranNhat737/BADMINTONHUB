@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Package, ShoppingCart,
   ChevronLeft, ChevronRight, Menu, LogOut,
   ArrowDownToLine, ArrowUpFromLine, ClipboardList,
-  ClipboardCheck, Repeat, Building2
+  ClipboardCheck, Repeat, Building2, QrCode, CalendarDays
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { RouteGuard } from "@/components/route-guard"
@@ -38,7 +38,9 @@ const navGroups = [
   {
     label: "Sân",
     items: [
+      { href: "/employee/bookings", icon: <CalendarDays className="h-5 w-5" />, label: "Đặt sân" },
       { href: "/employee/courts", icon: <Building2 className="h-5 w-5" />, label: "Quản lý sân" },
+      { href: "/employee/checkin", icon: <QrCode className="h-5 w-5" />, label: "Check-in" },
     ],
   },
   {
@@ -142,6 +144,7 @@ function EmployeeTopbar({ collapsed, onMobileMenu }: { collapsed: boolean; onMob
     '/employee/approval': 'Duyệt đơn',
     '/employee/orders': 'Đơn hàng online',
     '/employee/inventory': 'Tồn kho',
+    '/employee/bookings': 'Đặt sân',
     '/employee/courts': 'Quản lý sân',
   }
 

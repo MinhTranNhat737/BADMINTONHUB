@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import {
   LayoutDashboard, CalendarCheck, Package, FileText, BarChart3,
   ChevronLeft, ChevronRight, Menu, Truck, Settings, LogOut, User, FlaskConical,
-  Building2, ClipboardList
+  Building2, ClipboardList, Users, QrCode
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { RouteGuard } from "@/components/route-guard"
@@ -27,9 +27,11 @@ const navGroups = [
     items: [
       { href: "/admin/bookings", icon: <CalendarCheck className="h-5 w-5" />, label: "Đặt sân" },
       { href: "/admin/courts", icon: <Building2 className="h-5 w-5" />, label: "Quản lý sân" },
+      { href: "/admin/checkin", icon: <QrCode className="h-5 w-5" />, label: "Check-in" },
       { href: "/admin/inventory", icon: <Package className="h-5 w-5" />, label: "Tồn kho" },
       { href: "/admin/purchase-orders", icon: <Truck className="h-5 w-5" />, label: "Đặt hàng" },
       { href: "/admin/orders", icon: <ClipboardList className="h-5 w-5" />, label: "Quản lý đơn" },
+      { href: "/admin/accounts", icon: <Users className="h-5 w-5" />, label: "Tài khoản" },
     ],
   },
   {

@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Download, Share2, CalendarPlus, ArrowRight, Home, Printer, FileText, Receipt, CheckCircle2, Route, MapPin, Loader2, Navigation2, ExternalLink } from "lucide-react"
+import { Download, Share2, CalendarPlus, ArrowRight, Home, Printer, FileText, Receipt, CheckCircle2, Route, MapPin, Loader2, Navigation2, ExternalLink, Clock } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { formatVND } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { TOMTOM_API_KEY } from "@/lib/tomtom"
 import dynamic from "next/dynamic"
+import { QRCodeSVG } from "qrcode.react"
 
 const TomTomMap = dynamic<{ lat: number; lng: number; courtLat?: number; courtLng?: number; courtName?: string; routeCoords?: [number, number][] }>(
   () => import("@/components/tomtom-map"),
@@ -41,6 +42,7 @@ interface CompletedBooking {
   contact: { name: string; phone: string; email: string; address?: string }
   racketRental: boolean
   note: string
+  awaitingPayment?: boolean
 }
 
 function AnimatedCheckmark() {
@@ -68,6 +70,7 @@ const paymentLabels: Record<string, string> = {
 
 function InvoiceSection({ booking }: { booking: CompletedBooking }) {
   const invoiceRef = useRef<HTMLDivElement>(null)
+  const isAwaiting = booking.awaitingPayment
   const now = new Date()
   const invoiceDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`
   const invoiceTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
@@ -90,8 +93,8 @@ function InvoiceSection({ booking }: { booking: CompletedBooking }) {
               <Receipt className="h-5 w-5 text-primary" />
               <CardTitle className="font-serif text-lg">Hóa đơn thanh toán</CardTitle>
             </div>
-            <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
-              <CheckCircle2 className="h-3 w-3 mr-1" /> Đã thanh toán
+            <Badge variant="outline" className={isAwaiting ? "text-amber-700 border-amber-300 bg-amber-50" : "text-green-700 border-green-300 bg-green-50"}>
+              {isAwaiting ? <><Clock className="h-3 w-3 mr-1" /> Chờ xác nhận</> : <><CheckCircle2 className="h-3 w-3 mr-1" /> Đã thanh toán</>}
             </Badge>
           </div>
         </CardHeader>
@@ -104,7 +107,7 @@ function InvoiceSection({ booking }: { booking: CompletedBooking }) {
               <p className="text-muted-foreground text-xs">Hotline: 1900 1234</p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-muted-foreground">Số hóa đơn</p>
+              <p className="text-xs text-muted-foreground">Mã đặt sân</p>
               <p className="font-mono font-bold text-primary">{booking.id}</p>
               <p className="text-xs text-muted-foreground mt-1">{invoiceDate} - {invoiceTime}</p>
             </div>
@@ -216,7 +219,7 @@ function InvoiceSection({ booking }: { booking: CompletedBooking }) {
           <div className="text-center text-xs text-muted-foreground space-y-1">
             <p>Cảm ơn quý khách đã sử dụng dịch vụ BadmintonHub!</p>
             <p>Vui lòng xuất trình mã QR hoặc hóa đơn này khi đến sân.</p>
-            <p className="font-mono text-[10px] mt-2">Mã giao dịch: TXN-{booking.id}-{Date.now().toString(36).toUpperCase()}</p>
+            <p className="font-mono text-[10px] mt-2">Mã giao dịch: TXN-{booking.id}</p>
           </div>
 
           {/* Print & Download buttons */}
@@ -439,21 +442,28 @@ export default function BookingSuccessPage() {
 
           {/* Title */}
           <div className="text-center mt-4 animate-fade-in-up opacity-0 stagger-2" style={{ animationFillMode: 'forwards' }}>
-            <h1 className="font-serif text-2xl font-extrabold text-secondary lg:text-3xl">Đặt sân thành công!</h1>
+            <h1 className="font-serif text-2xl font-extrabold text-secondary lg:text-3xl">
+              {(data as any).awaitingPayment ? "Đã giữ chỗ thành công!" : "Đặt sân thành công!"}
+            </h1>
             <p className="text-muted-foreground mt-2">
               Mã đặt sân của bạn là <span className="font-mono font-bold text-primary">{data.id}</span>
             </p>
+            {(data as any).awaitingPayment && (
+              <p className="text-sm text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 inline-block">
+                Sân đã được giữ chỗ cho bạn. Vui lòng thanh toán và chờ nhân viên xác nhận để hoàn tất đặt sân.
+              </p>
+            )}
           </div>
 
-          {/* QR Code placeholder */}
+          {/* QR Code */}
           <div className="mt-6 flex justify-center animate-fade-in-up opacity-0 stagger-3" style={{ animationFillMode: 'forwards' }}>
-            <div className="h-[160px] w-[160px] rounded-xl border-2 border-dashed border-muted-foreground/30 flex items-center justify-center bg-muted">
+            <div className="h-[160px] w-[160px] rounded-xl border-2 border-dashed border-muted-foreground/30 flex items-center justify-center bg-white p-3">
               <div className="text-center">
-                <div className="grid grid-cols-4 gap-1 mx-auto w-20">
-                  {Array.from({ length: 16 }).map((_, i) => (
-                    <div key={i} className={`h-4 w-4 rounded-sm ${[0,1,3,4,5,7,8,10,12,13,15].includes(i) ? 'bg-foreground' : 'bg-background'}`} />
-                  ))}
-                </div>
+                <QRCodeSVG
+                  value={JSON.stringify({ bookingId: (data as any).bookingId || data.id, bookingCode: data.id })}
+                  size={110}
+                  level="M"
+                />
                 <p className="text-[10px] text-muted-foreground mt-2">QR Check-in</p>
               </div>
             </div>

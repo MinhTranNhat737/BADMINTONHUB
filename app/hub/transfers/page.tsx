@@ -20,8 +20,6 @@ import {
   ArrowDownToLine
 } from "lucide-react"
 
-const BRANCH_WAREHOUSES = ["Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên"]
-
 interface NewTransferItem {
   sku: string
   name: string
@@ -33,9 +31,10 @@ interface NewTransferItem {
 export default function HubTransfersPage() {
   const { user } = useAuth()
   const {
-    inventory, transferRequests, transactions,
+    inventory, transferRequests, transactions, warehouses,
     createTransfer, exportTransferItems, receiveTransferItems, updateTransferStatus
   } = useInventory()
+  const BRANCH_WAREHOUSES = useMemo(() => warehouses.filter(w => !w.isHub).map(w => w.name), [warehouses])
 
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "in-transit" | "completed" | "rejected">("all")
   const [detailOpen, setDetailOpen] = useState(false)

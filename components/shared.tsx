@@ -4,20 +4,16 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Bell, CheckCircle2, Clock, XCircle, Play, FileText, Truck, Package, AlertTriangle, Info } from "lucide-react"
+import { Bell, CheckCircle2, Clock, XCircle, Play, FileText, Truck, Package, AlertTriangle, Info, Timer } from "lucide-react"
 import { useState } from "react"
 import { Progress } from "@/components/ui/progress"
 
-// Default notifications (will be replaced by real API later)
-const defaultNotifications = [
-  { id: 1, title: "Đơn hàng mới", message: "Có 3 đơn hàng mới cần xử lý", time: "5 phút trước", read: false, priority: "high" as const },
-  { id: 2, title: "Tồn kho thấp", message: "5 sản phẩm sắp hết hàng", time: "1 giờ trước", read: false, priority: "medium" as const },
-  { id: 3, title: "Hệ thống", message: "Sao lưu dữ liệu hoàn tất", time: "3 giờ trước", read: true, priority: "low" as const },
-]
+
 
 // Booking Status Badge
 export function BookingStatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+    hold: { label: "Giữ chỗ", className: "bg-orange-100 text-orange-800 border-orange-200", icon: <Timer className="h-3 w-3" /> },
     pending: { label: "Chờ xác nhận", className: "bg-amber-100 text-amber-800 border-amber-200", icon: <Clock className="h-3 w-3" /> },
     confirmed: { label: "Đã xác nhận", className: "bg-blue-100 text-blue-800 border-blue-200", icon: <CheckCircle2 className="h-3 w-3" /> },
     playing: { label: "Đang chơi", className: "bg-green-100 text-green-800 border-green-200", icon: <Play className="h-3 w-3" /> },
@@ -93,7 +89,7 @@ export function StockLevelIndicator({ available, reorderPoint, max }: { availabl
 
 // Notification Bell
 export function NotificationBell() {
-  const [notifs, setNotifs] = useState(defaultNotifications)
+  const [notifs, setNotifs] = useState<{ id: number; title: string; message: string; time: string; read: boolean; priority: "high" | "medium" | "low" }[]>([])
   const unreadCount = notifs.filter(n => !n.read).length
 
   return (

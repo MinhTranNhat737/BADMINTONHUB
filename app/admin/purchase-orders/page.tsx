@@ -51,8 +51,6 @@ function getPOStep(status: string) {
   }
 }
 
-const ALL_WAREHOUSES = ["Kho Hub", "Kho Cầu Giấy", "Kho Thanh Xuân", "Kho Long Biên"]
-
 // ── PO Detail Sheet ────────────────────────────────────────────────────────
 function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStatus: (id: string, status: string) => void }) {
   const step = getPOStep(po.status)
@@ -62,7 +60,8 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
   const vat = subtotal * 0.08
   const total = subtotal + vat
   const [receiveWarehouse, setReceiveWarehouse] = useState(po.warehouse || "Kho Hub")
-  const { createAdminSlip } = useInventory()
+  const { createAdminSlip, warehouses } = useInventory()
+  const ALL_WAREHOUSES = warehouses.map(w => w.name)
 
   return (
     <SheetContent className="w-full sm:max-w-[540px] overflow-y-auto">
@@ -270,6 +269,7 @@ export default function AdminPurchaseOrders() {
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [inventoryItems, setInventoryItems] = useState<any[]>([])
   const ctx = useInventory()
+  const ALL_WAREHOUSES = ctx.warehouses.map(w => w.name)
 
   useEffect(() => {
     const init = async () => {
