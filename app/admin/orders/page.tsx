@@ -23,7 +23,7 @@ import {
 // ── Types ──
 interface POItemData { sku: string; name: string; qty: number; unitCost: number }
 interface PurchaseOrder {
-  id: string; supplier: string; status: string; createdDate: string;
+  id: string; poCode?: string; supplier: string; status: string; createdDate: string;
   totalValue: number; items: POItemData[]; warehouse: string; note: string;
 }
 
@@ -38,6 +38,7 @@ interface SalesOrder {
 // ── Unified row type ──
 interface UnifiedOrder {
   id: string
+  displayCode: string
   type: "import" | "export" | "transfer" | "sale" | "po"
   date: string
   description: string
@@ -99,26 +100,26 @@ export default function AdminAllOrdersPage() {
         const poRes = await purchaseOrderApi.getAll()
         if (poRes.success && poRes.data) {
           setPurchaseOrders(poRes.data.map((p: any) => ({
-            id: String(p.id), supplier: p.supplier_name || p.supplier || "",
+            id: String(p.id), poCode: p.po_code || '', supplier: p.supplier_name || p.supplier || "",
             status: p.status || "draft",
             createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
             totalValue: p.total_value ?? 0, items: (p.po_items || []).map((i: any) => ({ sku: i.sku, name: i.name || i.product_name || "", qty: i.qty || i.quantity || 0, unitCost: i.unit_cost || i.unitCost || i.price || 0 })),
             warehouse: p.warehouse_name || "Kho Hub", note: p.note || "",
           })))
         }
-      } catch {}
+      } catch { }
       try {
         const soRes = await salesOrderApi.getAll()
         if (soRes.success && soRes.data) {
           setSalesOrders(soRes.data.map((o: any) => ({
-            id: String(o.id), items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
+            id: String(o.id), salesCode: o.sales_code || '', items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
             customer: { name: o.customer_name || "", phone: o.customer_phone || "", email: o.customer_email || "", address: o.shipping_address || "" },
-            note: o.note || "", subtotal: o.amount || 0, shippingFee: 0, total: o.amount || 0,
+            note: o.note || "", subtotal: o.total || 0, shippingFee: 0, total: o.final_total || o.total || 0,
             paymentMethod: o.payment_method || "", status: o.status || "", createdAt: o.created_at || "",
             userId: o.user_id || "", type: "sale", fulfillingWarehouse: o.warehouse_name || "", approvedBy: o.approved_by || "",
           })))
         }
-      } catch {}
+      } catch { }
       // Also load customer orders
       try {
         const orRes = await orderApi.getAll()
@@ -126,16 +127,16 @@ export default function AdminAllOrdersPage() {
           setSalesOrders(prev => {
             const existingIds = new Set(prev.map(s => s.id))
             const newOrders = orRes.orders.filter((o: any) => !existingIds.has(String(o.id))).map((o: any) => ({
-              id: String(o.id), items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
+              id: String(o.id), orderCode: o.orderCode || o.order_code || '', items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
               customer: { name: o.customerName || "", phone: o.customerPhone || "", email: o.customerEmail || "", address: o.shippingAddress || "" },
-              note: o.note || "", subtotal: o.totalAmount || 0, shippingFee: 0, total: o.totalAmount || 0,
+              note: o.note || "", subtotal: o.amount || o.total || 0, shippingFee: o.shippingFee || 0, total: o.amount || o.total || 0,
               paymentMethod: o.paymentMethod || "", status: o.status || "", createdAt: o.createdAt || "",
               userId: o.userId || "", type: "sale", fulfillingWarehouse: "", approvedBy: "",
             }))
             return [...prev, ...newOrders]
           })
         }
-      } catch {}
+      } catch { }
     }
     loadData()
   }, [])
@@ -149,6 +150,7 @@ export default function AdminAllOrdersPage() {
       if (tx.type === "transfer-out" || tx.type === "transfer-in") continue // handled by transferRequests
       rows.push({
         id: tx.id,
+        displayCode: tx.id.slice(0, 12),
         type: tx.type === "import" ? "import" : "export",
         date: tx.date,
         description: `${tx.productName} (${tx.sku}) x${tx.qty}`,
@@ -165,6 +167,7 @@ export default function AdminAllOrdersPage() {
       const totalQty = tr.items.reduce((s, i) => s + i.qty, 0)
       rows.push({
         id: tr.id,
+        displayCode: tr.transferCode || tr.id.slice(0, 12),
         type: "transfer",
         date: tr.date,
         description: `${tr.fromWarehouse} → ${tr.toWarehouse} (${tr.items.length} SP)`,
@@ -182,6 +185,7 @@ export default function AdminAllOrdersPage() {
       const totalVal = slip.items.reduce((s, i) => s + i.qty * i.unitCost, 0)
       rows.push({
         id: slip.id,
+        displayCode: slip.id.slice(0, 12),
         type: slip.type === "import" ? "import" : "export",
         date: slip.date,
         description: `Phiếu admin: ${slip.note}`,
@@ -199,6 +203,7 @@ export default function AdminAllOrdersPage() {
       const totalQty = items.reduce((s, i) => s + i.qty, 0)
       rows.push({
         id: po.id,
+        displayCode: po.poCode || po.id.slice(0, 12),
         type: "po",
         date: po.createdDate,
         description: `${po.supplier} (${items.length} SP)`,
@@ -215,6 +220,7 @@ export default function AdminAllOrdersPage() {
       const totalQty = ord.items.reduce((s, i) => s + i.qty, 0)
       rows.push({
         id: ord.id,
+        displayCode: (ord as any).salesCode || (ord as any).orderCode || ord.id.slice(0, 12),
         type: "sale",
         date: ord.createdAt?.slice(0, 10) || "",
         description: `${ord.customer?.name || "Khách"} (${ord.items.length} SP)`,
@@ -238,7 +244,7 @@ export default function AdminAllOrdersPage() {
       if (warehouseFilter !== "all" && !o.warehouse.includes(warehouseFilter)) return false
       if (search) {
         const q = search.toLowerCase()
-        if (!o.id.toLowerCase().includes(q) && !o.description.toLowerCase().includes(q)) return false
+        if (!o.displayCode.toLowerCase().includes(q) && !o.id.toLowerCase().includes(q) && !o.description.toLowerCase().includes(q)) return false
       }
       return true
     })
@@ -378,7 +384,7 @@ export default function AdminAllOrdersPage() {
                 </TableRow>
               ) : paginatedRows.map((row, idx) => (
                 <TableRow key={`${row.type}-${row.id}`} className={cn("hover:bg-muted/50", idx % 2 !== 0 && "bg-muted/20")}>
-                  <TableCell className="font-mono text-xs text-primary font-semibold max-w-[140px] truncate">{row.id}</TableCell>
+                  <TableCell className="font-mono text-xs text-primary font-semibold max-w-[140px] truncate">{row.displayCode}</TableCell>
                   <TableCell><OrderTypeBadge type={row.type} /></TableCell>
                   <TableCell className="text-sm">{row.date}</TableCell>
                   <TableCell className="text-sm max-w-[250px] truncate">{row.description}</TableCell>
@@ -442,7 +448,7 @@ function OrderDetailSheet({ row }: { row: UnifiedOrder }) {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-mono text-sm text-primary font-semibold">{row.id}</p>
+            <p className="font-mono text-sm text-primary font-semibold">{row.displayCode}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{row.date}</p>
           </div>
           <div className="flex items-center gap-2">

@@ -99,15 +99,30 @@ export default function CheckoutPage() {
         ? (selectedBranch ? selectedBranch.address : "")
         : address.trim()
 
+      // Determine fulfilling warehouse for delivery
+      let fulfillingWarehouse: string | undefined
+      if (deliveryMethod === "delivery" && customerCoords) {
+        const nearest = findNearestWarehouse(customerCoords.lat, customerCoords.lng)
+        fulfillingWarehouse = nearest.warehouseName
+      }
+
       const result = await orderApi.create({
         customer_name: fullName.trim(),
         customer_phone: phone.trim(),
         customer_email: email.trim(),
-        shipping_address: shippingAddr,
+        customer_address: shippingAddr,
+        delivery_method: deliveryMethod,
+        pickup_branch_id: deliveryMethod === "pickup" ? pickupBranch : undefined,
+        subtotal,
+        shipping_fee: shippingFee,
+        total,
+        customer_coords: deliveryMethod === "delivery" ? customerCoords : undefined,
+        fulfilling_warehouse: fulfillingWarehouse,
         payment_method: paymentMethod,
         note: note.trim() || undefined,
         items: cart.map(item => ({
           product_id: item.productId,
+          product_name: item.name,
           quantity: item.qty,
           price: item.price,
         })),
@@ -116,7 +131,7 @@ export default function CheckoutPage() {
       if (result.success && result.order) {
         // Save for success page display
         localStorage.setItem("badmintonhub_completed_order", JSON.stringify({
-          id: result.order.id,
+          id: result.order.orderCode || result.order.order_code || result.order.id,
           items: cart,
           customer: { name: fullName.trim(), phone: phone.trim(), email: email.trim(), address: shippingAddr },
           note: note.trim(),

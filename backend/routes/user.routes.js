@@ -13,6 +13,14 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
+const adminOrEmployee = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'employee') {
+    return res.status(403).json({ success: false, message: 'Chỉ admin hoặc nhân viên mới có quyền truy cập' });
+  }
+  next();
+};
+
+router.get('/lookup/phone',    authenticate, adminOrEmployee, ctrl.lookupByPhone);
 router.get('/',                 authenticate, adminOnly, ctrl.getAll);
 router.get('/:id',              authenticate, adminOnly, ctrl.getById);
 router.post('/',                authenticate, adminOnly, ctrl.create);

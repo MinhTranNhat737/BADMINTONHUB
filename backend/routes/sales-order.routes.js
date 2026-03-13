@@ -9,7 +9,8 @@ const { authorize }     = require('../middlewares/role.middleware');
 router.get('/',               authenticate, authorize('admin', 'employee'), ctrl.getAll);
 router.get('/:id',            authenticate, authorize('admin', 'employee'), ctrl.getById);
 router.post('/',              authenticate, authorize('admin', 'employee'), ctrl.create);
-router.patch('/:id/approve',  authenticate, authorize('admin'), ctrl.approve);
-router.patch('/:id/reject',   authenticate, authorize('admin'), ctrl.reject);
+router.patch('/:id/approve',  authenticate, authorize('admin', 'employee'), ctrl.approve);
+router.patch('/:id/reject',   authenticate, authorize('admin', 'employee'), ctrl.reject);
+router.patch('/:id/complete', authenticate, authorize('admin', 'employee'), ctrl.complete);
 
 module.exports = router;

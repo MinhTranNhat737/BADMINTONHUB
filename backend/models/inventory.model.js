@@ -6,7 +6,7 @@ const { query, getClient } = require('../config/database');
 const Inventory = {
   // Lấy tồn kho theo kho
   findByWarehouse: async (warehouseId) => {
-    const sql = `SELECT i.*, p.brand, p.image AS product_image
+    const sql = `SELECT i.*, p.brand, p.price AS product_price, p.image AS product_image
                  FROM inventory i
                  LEFT JOIN products p ON p.id = i.product_id
                  WHERE i.warehouse_id = $1
@@ -22,11 +22,11 @@ const Inventory = {
     let idx = 1;
 
     if (warehouseId) { where.push(`i.warehouse_id = $${idx++}`); values.push(warehouseId); }
-    if (category)    { where.push(`i.category = $${idx++}`); values.push(category); }
-    if (search)      { where.push(`(i.name ILIKE $${idx} OR i.sku ILIKE $${idx})`); values.push(`%${search}%`); idx++; }
-    if (lowStock)    { where.push(`i.available < i.reorder_point`); }
+    if (category) { where.push(`i.category = $${idx++}`); values.push(category); }
+    if (search) { where.push(`(i.name ILIKE $${idx} OR i.sku ILIKE $${idx})`); values.push(`%${search}%`); idx++; }
+    if (lowStock) { where.push(`i.available < i.reorder_point`); }
 
-    const sql = `SELECT i.*, w.name AS warehouse_name, w.is_hub, b.name AS branch_name, p.brand
+    const sql = `SELECT i.*, w.name AS warehouse_name, w.is_hub, b.name AS branch_name, p.brand, p.price AS product_price
                  FROM inventory i
                  JOIN warehouses w ON w.id = i.warehouse_id
                  LEFT JOIN branches b ON b.id = w.branch_id
@@ -51,10 +51,15 @@ const Inventory = {
       await client.query('BEGIN');
 
       // Cập nhật on_hand (trigger tự tính available)
-      await client.query(
+      const updateResult = await client.query(
         `UPDATE inventory SET on_hand = on_hand + $1 WHERE sku = $2 AND warehouse_id = $3`,
         [qty, sku, warehouseId]
       );
+
+      // Kiểm tra SKU có tồn tại trong kho không
+      if (updateResult.rowCount === 0) {
+        throw { statusCode: 400, message: `SKU "${sku}" không tồn tại trong kho ID ${warehouseId}` };
+      }
 
       // Ghi log giao dịch
       await client.query(
@@ -113,8 +118,8 @@ const Inventory = {
     let idx = 1;
 
     if (warehouseId) { where.push(`t.warehouse_id = $${idx++}`); values.push(warehouseId); }
-    if (sku)         { where.push(`t.sku = $${idx++}`); values.push(sku); }
-    if (type)        { where.push(`t.type = $${idx++}`); values.push(type); }
+    if (sku) { where.push(`t.sku = $${idx++}`); values.push(sku); }
+    if (type) { where.push(`t.type = $${idx++}`); values.push(type); }
 
     const sql = `SELECT t.*, w.name AS warehouse_name
                  FROM inventory_transactions t

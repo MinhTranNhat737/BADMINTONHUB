@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { formatVND } from "@/lib/utils"
-import { productApi, salesOrderApi, orderApi } from "@/lib/api"
+import { productApi, salesOrderApi, orderApi, userApi } from "@/lib/api"
 import { useInventory } from "@/lib/inventory-context"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
@@ -23,7 +23,7 @@ import {
   Search, ShoppingCart, Plus, Trash2, CheckCircle2, AlertTriangle,
   DollarSign, Receipt, Printer, User, CreditCard, Banknote, Smartphone,
   FileText, ArrowDownToLine, ArrowUpFromLine, Package, Clock, XCircle,
-  Eye, Truck, MapPin, Phone, ClipboardList, Filter, ChevronsUpDown, Check, Warehouse
+  Eye, Truck, MapPin, Phone, ClipboardList, Filter, ChevronsUpDown, Check, Warehouse, Loader2
 } from "lucide-react"
 
 interface CartItem {
@@ -48,7 +48,7 @@ interface SaleRecord {
 
 interface SalesOrder {
   id: string
-  date: string
+   interface AggregatedItem {
   time: string
   customer: string
   phone: string
@@ -56,12 +56,11 @@ interface SalesOrder {
   total: number
   discount: number
   finalTotal: number
+     productId?: number
   paymentMethod: string
   note: string
-  status: "pending" | "approved" | "rejected" | "exported"
-  createdBy: string
   approvedAt?: string
-  approvedBy?: string
+       productId?: number
   rejectedAt?: string
   rejectedBy?: string
   rejectReason?: string
@@ -125,6 +124,9 @@ export default function EmployeeSales() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
+  const [nameAutoFilled, setNameAutoFilled] = useState(false)
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [phoneMatches, setPhoneMatches] = useState<{ id: string; userCode: string; fullName: string; phone: string; email: string; role: string }[]>([])
   const [discount, setDiscount] = useState(0)
   const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent")
   const [paymentMethod, setPaymentMethod] = useState("cash")
@@ -145,46 +147,98 @@ export default function EmployeeSales() {
   const [selectedOnlineOrder, setSelectedOnlineOrder] = useState<OnlineOrder | null>(null)
   const [selectedSlipDetail, setSelectedSlipDetail] = useState<ExportSlip | null>(null)
 
+  const normalizePhone = (value: string) => String(value || "").replace(/\D/g, "")
+  const normalizedCustomerPhone = useMemo(() => normalizePhone(customerPhone), [customerPhone])
+  const exactPhoneMatch = useMemo(
+    () => phoneMatches.find(u => normalizePhone(u.phone) === normalizedCustomerPhone),
+    [phoneMatches, normalizedCustomerPhone]
+  )
+
   // Load data from API + localStorage fallback
-  const [products, setProducts] = useState<{id: number; name: string; price: number; brand: string; inStock: boolean}[]>([])
+  const [products, setProducts] = useState<{ id: number; sku: string; name: string; price: number; brand: string; inStock: boolean }[]>([])
   useEffect(() => {
-    productApi.getAll().then(res => {
-      if (Array.isArray(res)) setProducts(res.map((p: any) => ({ id: p.id, name: p.name, price: p.price, brand: p.brand || "", inStock: p.inStock ?? true })))
-    }).catch(() => {})
+    productApi.getAll({ page: 1, limit: 1000 }).then(res => {
+      const list = Array.isArray((res as any)?.products) ? (res as any).products : []
+      setProducts(list.map((p: any) => ({
+        id: p.id,
+        sku: p.sku || "",
+        name: p.name,
+        price: p.price || 0,
+        brand: p.brand || "",
+        inStock: p.inStock ?? true,
+      })))
+    }).catch(() => { })
   }, [])
+
+  // Lookup customer account by phone and auto-fill name if exact match
+  useEffect(() => {
+    const phoneDigits = normalizedCustomerPhone
+    if (phoneDigits.length < 6) {
+      setPhoneMatches([])
+      setLookupLoading(false)
+      return
+    }
+
+    let isActive = true
+    const timer = setTimeout(async () => {
+      setLookupLoading(true)
+      try {
+        const res = await userApi.lookupByPhone(phoneDigits)
+        if (!isActive) return
+        const matches = res.users || []
+        setPhoneMatches(matches)
+
+        const exact = matches.find((u: any) => normalizePhone(u.phone) === phoneDigits)
+        if (exact) {
+          setCustomerName(prev => {
+            if (prev.trim() && !nameAutoFilled) return prev
+            return exact.fullName || prev
+          })
+          setNameAutoFilled(true)
+        }
+      } finally {
+        if (isActive) setLookupLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      isActive = false
+      clearTimeout(timer)
+    }
+  }, [normalizedCustomerPhone, nameAutoFilled])
   useEffect(() => {
     const loadData = async () => {
       try {
         const soRes = await salesOrderApi.getAll()
         if (soRes.success && soRes.data) {
           setSalesOrders(soRes.data.map((o: any) => ({
-            id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
+            id: o.sales_code || String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
             time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
             customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
             items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-            total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
+            total: o.total || 0, discount: o.discount || 0, finalTotal: o.final_total || o.total || 0,
             paymentMethod: o.payment_method || "", note: o.note || "",
             status: o.status || "pending", createdBy: o.created_by || "",
           })))
         }
-      } catch {}
+      } catch { }
       try {
         const orRes = await orderApi.getAll()
         if (orRes.orders) {
           setOnlineOrders(orRes.orders.map((o: any) => ({
-            id: String(o.id), items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
+            id: o.orderCode || o.order_code || String(o.id), items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
             customer: { name: o.customerName || "", phone: o.customerPhone || "", email: o.customerEmail || "", address: o.shippingAddress || "" },
-            note: o.note || "", subtotal: o.totalAmount || 0, shippingFee: 0, total: o.totalAmount || 0,
+            note: o.note || "", subtotal: o.amount || o.total || 0, shippingFee: o.shippingFee || 0, total: o.amount || o.total || 0,
             paymentMethod: o.paymentMethod || "", status: o.status || "", createdAt: o.createdAt || "",
             userId: o.userId || "", type: "online" as const, deliveryMethod: "delivery" as const,
           })))
         }
-      } catch {}
+      } catch { }
       // Export slips from localStorage for now (no backend endpoint)
       try {
         const storedSlips = localStorage.getItem("exportSlips")
         if (storedSlips) setExportSlips(JSON.parse(storedSlips))
-      } catch {}
+      } catch { }
     }
     loadData()
     const handleFocus = () => loadData()
@@ -198,16 +252,16 @@ export default function EmployeeSales() {
       salesOrderApi.getAll().then((res: any) => {
         if (res.success && res.data) {
           setSalesOrders(res.data.map((o: any) => ({
-            id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
+            id: o.sales_code || String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
             time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
             customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
             items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-            total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
+            total: o.total || 0, discount: o.discount || 0, finalTotal: o.final_total || o.total || 0,
             paymentMethod: o.payment_method || "", note: o.note || "",
             status: o.status || "pending", createdBy: o.created_by || "",
           })))
         }
-      }).catch(() => {})
+      }).catch(() => { })
     }
   }, [saleSuccess])
 
@@ -257,9 +311,9 @@ export default function EmployeeSales() {
     totalAvailable: number
     unitCost: number
     retailPrice: number
-    warehouses: { name: string; available: number }[]
+    warehouses: { name: string; available: number }[]\r
+    productId?: number
   }
-
   const aggregatedInventory: AggregatedItem[] = useMemo(() => {
     const map = new Map<string, AggregatedItem>()
     for (const item of inventoryItems) {
@@ -269,11 +323,13 @@ export default function EmployeeSales() {
         existing.totalAvailable += item.available
         existing.warehouses.push({ name: item.warehouse, available: item.available })
       } else {
-        // Match to retail product if available
-        const retail = products.find(p =>
+        // Match retail price by exact SKU first, then name heuristic fallback
+        const retailBySku = products.find(p => p.sku && p.sku === item.sku)
+        const retailByName = products.find(p =>
           p.name.toLowerCase().includes(item.name.toLowerCase().split(" ").slice(0, 3).join(" ")) ||
           item.name.toLowerCase().includes(p.name.toLowerCase().split(" ").slice(0, 3).join(" "))
         )
+        const retail = retailBySku || retailByName
         map.set(item.sku, {
           sku: item.sku,
           name: item.name,
@@ -281,9 +337,10 @@ export default function EmployeeSales() {
           totalOnHand: item.onHand,
           totalAvailable: item.available,
           unitCost: item.unitCost,
-          retailPrice: retail?.price ?? Math.round(item.unitCost * 1.4),
+          retailPrice: retail?.price ?? (item.unitCost > 0 ? item.unitCost : 0),
           warehouses: [{ name: item.warehouse, available: item.available }],
         })
+        productId: retail?.id, // Added productId to the aggregated item
       }
     }
     return Array.from(map.values())
@@ -306,9 +363,7 @@ export default function EmployeeSales() {
       if (existing) {
         return prev.map(c => c.name === item.name ? { ...c, qty: c.qty + 1 } : c)
       }
-      // Use negative hash of sku as productId to avoid collision with retail product ids
-      const fakeId = -(item.sku.split("").reduce((a, c) => a + c.charCodeAt(0), 0))
-      return [...prev, { productId: fakeId, name: item.name, price: item.retailPrice, qty: 1 }]
+         return [...prev, { productId: item.productId ?? 0, name: item.name, price: item.retailPrice, qty: 1 }]
     })
   }
 
@@ -343,7 +398,7 @@ export default function EmployeeSales() {
     setCart(prev => prev.filter(item => item.productId !== productId))
   }
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
     if (cart.length === 0) return
 
     const now = new Date()
@@ -361,13 +416,22 @@ export default function EmployeeSales() {
     }
 
     // Save as pending sales order via API
-    salesOrderApi.create({
-      branch_id: 1,
-      customer_name: customerName || "Khách lẻ",
-      customer_phone: customerPhone || undefined,
-      note: note || undefined,
-      items: cart.map(c => ({ sku: String(c.productId), quantity: c.qty, price: c.price })),
-    }).catch(() => {})
+    try {
+      const res: any = await salesOrderApi.create({
+        branch_id: 1,
+        customer_name: customerName || "Khách lẻ",
+        customer_phone: customerPhone || undefined,
+        total: cartTotal,
+        discount: discountAmount,
+        final_total: finalTotal,
+        payment_method: paymentMethod === "cash" ? "Tiền mặt" : paymentMethod === "momo" ? "MoMo" : paymentMethod === "vnpay" ? "VNPay" : "Chuyển khoản",
+        note: note || undefined,
+        items: cart.map(c => ({ product_id: c.productId, product_name: c.name, qty: c.qty, price: c.price })),
+      })
+      if (res?.data?.sales_code) sale.id = res.data.sales_code
+    } catch {
+      return
+    }
 
     setSalesHistory(prev => [sale, ...prev])
     setLastSale(sale)
@@ -377,10 +441,13 @@ export default function EmployeeSales() {
     setCart([])
     setCustomerName("")
     setCustomerPhone("")
+    setNameAutoFilled(false)
+    setPhoneMatches([])
     setDiscount(0)
     setNote("")
 
     setTimeout(() => setSaleSuccess(false), 4000)
+    router.push("/employee/approval")
   }
 
   const paymentMethods = [
@@ -395,7 +462,7 @@ export default function EmployeeSales() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-serif text-2xl font-extrabold">Bán hàng</h1>
-          <p className="text-sm text-muted-foreground">Tạo đơn bán hàng và thanh toán</p>
+          <p className="text-sm text-muted-foreground">Tạo đơn bán hàng và chuyển sang quy trình duyệt</p>
         </div>
       </div>
 
@@ -604,7 +671,10 @@ export default function EmployeeSales() {
                         <Input
                           placeholder="Khách lẻ"
                           value={customerName}
-                          onChange={e => setCustomerName(e.target.value)}
+                          onChange={e => {
+                            setCustomerName(e.target.value)
+                            setNameAutoFilled(false)
+                          }}
                           className="h-8 text-xs pl-8"
                         />
                       </div>
@@ -617,6 +687,40 @@ export default function EmployeeSales() {
                         onChange={e => setCustomerPhone(e.target.value)}
                         className="h-8 text-xs mt-1"
                       />
+                      <div className="mt-1 min-h-[18px]">
+                        {lookupLoading ? (
+                          <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Đang tra cứu tài khoản...
+                          </p>
+                        ) : exactPhoneMatch ? (
+                          <p className="text-[11px] text-green-600">
+                            Tìm thấy tài khoản: <strong>{exactPhoneMatch.fullName}</strong> ({exactPhoneMatch.userCode || exactPhoneMatch.phone})
+                          </p>
+                        ) : normalizedCustomerPhone.length >= 6 && phoneMatches.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground">Không tìm thấy tài khoản theo số này</p>
+                        ) : null}
+
+                        {!exactPhoneMatch && phoneMatches.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {phoneMatches.slice(0, 4).map(u => (
+                              <Button
+                                key={u.id}
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 text-[10px] px-2"
+                                onClick={() => {
+                                  setCustomerPhone(u.phone)
+                                  setCustomerName(u.fullName)
+                                  setNameAutoFilled(true)
+                                }}
+                              >
+                                {u.fullName} · {u.phone}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -757,44 +861,9 @@ export default function EmployeeSales() {
                         >
                           Huỷ đơn
                         </Button>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={cart.length === 0}>
-                              <DollarSign className="h-4 w-4 mr-1" /> Thanh toán
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle className="font-serif">Xác nhận thanh toán</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-3">
-                              <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                <Receipt className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-                                <div className="text-sm space-y-1">
-                                  <p>Khách hàng: <strong>{customerName || "Khách lẻ"}</strong></p>
-                                  <p>Số sản phẩm: <strong>{cart.reduce((s, i) => s + i.qty, 0)}</strong></p>
-                                  {discountAmount > 0 && (
-                                    <p>Giảm giá: <strong className="text-red-600">-{formatVND(discountAmount)}</strong></p>
-                                  )}
-                                  <p>Thanh toán: <strong>{paymentMethods.find(p => p.value === paymentMethod)?.label}</strong></p>
-                                  <p className="text-lg font-bold text-primary pt-1">
-                                    Tổng: {formatVND(finalTotal)}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <DialogClose asChild>
-                                <Button variant="outline">Huỷ</Button>
-                              </DialogClose>
-                              <DialogClose asChild>
-                                <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleConfirmSale}>
-                                  <CheckCircle2 className="h-4 w-4 mr-1" /> Xác nhận
-                                </Button>
-                              </DialogClose>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
+                        <Button className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={cart.length === 0} onClick={handleConfirmSale}>
+                          <DollarSign className="h-4 w-4 mr-1" /> Thanh toán
+                        </Button>
                       </div>
                     </>
                   )}

@@ -38,8 +38,8 @@ const create = async (req, res, next) => {
 // PATCH /api/transfers/:id/status
 const updateStatus = async (req, res, next) => {
   try {
-    const { status } = req.body;
-    const transfer = await Transfer.updateStatus(req.params.id, status, req.user.id);
+    const { status, exportedQtys } = req.body;
+    const transfer = await Transfer.updateStatus(req.params.id, status, req.user.id, exportedQtys);
     if (!transfer) return res.status(404).json({ success: false, message: 'Không tìm thấy yêu cầu' });
     return success(res, transfer, 'Cập nhật trạng thái thành công');
   } catch (err) { next(err); }

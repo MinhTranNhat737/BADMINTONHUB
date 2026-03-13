@@ -2,6 +2,7 @@
 // Model: Sales Orders (sales_orders + sales_order_items)
 // ═══════════════════════════════════════════════════════════════
 const { query, getClient } = require('../config/database');
+const { generateCode } = require('../utils/code-generator');
 
 const SalesOrder = {
   findAll: async ({ status, branchId, createdBy } = {}) => {
@@ -9,8 +10,8 @@ const SalesOrder = {
     const values = [];
     let idx = 1;
 
-    if (status)    { where.push(`so.status = $${idx++}`); values.push(status); }
-    if (branchId)  { where.push(`so.branch_id = $${idx++}`); values.push(branchId); }
+    if (status) { where.push(`so.status = $${idx++}`); values.push(status); }
+    if (branchId) { where.push(`so.branch_id = $${idx++}`); values.push(branchId); }
     if (createdBy) { where.push(`so.created_by = $${idx++}`); values.push(createdBy); }
 
     const sql = `SELECT so.*, u.full_name AS employee_name, br.name AS branch_name
@@ -20,6 +21,13 @@ const SalesOrder = {
                  WHERE ${where.join(' AND ')}
                  ORDER BY so.created_at DESC`;
     const result = await query(sql, values);
+
+    // Gắn items cho mỗi đơn hàng
+    for (const order of result.rows) {
+      const items = await query('SELECT * FROM sales_order_items WHERE sales_order_id = $1', [order.id]);
+      order.items = items.rows;
+    }
+
     return result.rows;
   },
 
@@ -44,13 +52,15 @@ const SalesOrder = {
       await client.query('BEGIN');
 
       const { created_by, branch_id, customer_name, customer_phone, total, discount = 0,
-              final_total, payment_method, note, items } = data;
+        final_total, payment_method, note, items } = data;
+
+      const sales_code = await generateCode(client, 'BH', 'sales_orders', 'sales_code');
 
       const sql = `INSERT INTO sales_orders (created_by, branch_id, customer_name, customer_phone,
-                   total, discount, final_total, payment_method, note)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`;
+                   total, discount, final_total, payment_method, note, sales_code)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`;
       const result = await client.query(sql, [created_by, branch_id, customer_name, customer_phone,
-        total, discount, final_total, payment_method, note]);
+        total, discount, final_total, payment_method, note, sales_code]);
       const order = result.rows[0];
 
       for (const item of items) {
@@ -71,12 +81,17 @@ const SalesOrder = {
     }
   },
 
-  updateStatus: async (id, { status, approved_by, reject_reason }) => {
+  updateStatus: async (id, { status, approved_by, reject_reason, payment_method, note }) => {
     let sql;
     if (status === 'approved') {
-      sql = `UPDATE sales_orders SET status = 'approved', approved_by = $1, approved_at = NOW()
+      sql = `UPDATE sales_orders
+             SET status = 'approved',
+                 approved_by = $1,
+                 approved_at = NOW(),
+                 payment_method = COALESCE($3, payment_method),
+                 note = COALESCE($4, note)
              WHERE id = $2 RETURNING *`;
-      const result = await query(sql, [approved_by, id]);
+      const result = await query(sql, [approved_by, id, payment_method || null, note || null]);
       return result.rows[0] || null;
     } else if (status === 'rejected') {
       sql = `UPDATE sales_orders SET status = 'rejected', approved_by = $1, reject_reason = $2

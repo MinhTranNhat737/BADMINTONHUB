@@ -255,6 +255,72 @@ const Booking = {
     return result.rows[0] || null;
   },
 
+  // Đổi lịch booking (reschedule)
+  reschedule: async (id, { booking_date, time_start, time_end, amount }) => {
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+
+      // Lấy booking hiện tại
+      const existing = await client.query(
+        `SELECT * FROM bookings WHERE id = $1 AND status IN ('confirmed', 'pending')`, [id]
+      );
+      if (existing.rows.length === 0) {
+        throw { statusCode: 400, message: 'Booking không tồn tại hoặc không thể đổi lịch' };
+      }
+      const booking = existing.rows[0];
+
+      // Xoá court_slots cũ
+      await client.query('DELETE FROM court_slots WHERE booking_id = $1', [id]);
+
+      // Kiểm tra slot mới có trống không
+      const slotCheck = await client.query(
+        `SELECT id FROM court_slots WHERE court_id = $1 AND slot_date = $2 AND time >= $3 AND time < $4 AND status IN ('booked', 'hold')`,
+        [booking.court_id, booking_date, time_start, time_end]
+      );
+      if (slotCheck.rows.length > 0) {
+        // Rollback — khôi phục slot cũ sẽ được tạo lại khi ROLLBACK
+        throw { statusCode: 409, message: 'Khung giờ mới đã được đặt hoặc đang giữ chỗ' };
+      }
+
+      // Cập nhật booking
+      const updateSql = `UPDATE bookings SET booking_date = $1, time_start = $2, time_end = $3, amount = $4, updated_at = NOW()
+                         WHERE id = $5 RETURNING *`;
+      const updateResult = await client.query(updateSql, [booking_date, time_start, time_end, amount || booking.amount, id]);
+      const updated = updateResult.rows[0];
+
+      // Tạo court_slots mới
+      const startHour = parseInt(time_start.split(':')[0]);
+      const endHour = parseInt(time_end.split(':')[0]);
+      const d = new Date(booking_date);
+      const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+      for (let h = startHour; h < endHour; h++) {
+        const slotTime = h.toString().padStart(2, '0') + ':00';
+        await client.query(
+          `INSERT INTO court_slots (court_id, slot_date, date_label, time, status, booked_by, phone, booking_id)
+           VALUES ($1, $2, $3, $4, 'booked', $5, $6, $7)
+           ON CONFLICT (court_id, slot_date, time) DO UPDATE SET status = 'booked', booked_by = $5, phone = $6, booking_id = $7`,
+          [booking.court_id, booking_date, dayLabel, slotTime, booking.customer_name, booking.customer_phone, id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      // Trả về booking kèm court_name, branch_name
+      const fullBooking = await query(
+        `SELECT bk.*, c.name AS court_name, br.name AS branch_name
+         FROM bookings bk JOIN courts c ON c.id = bk.court_id JOIN branches br ON br.id = bk.branch_id
+         WHERE bk.id = $1`, [id]
+      );
+      return fullBooking.rows[0] || updated;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
   // Tự động hoàn thành các booking đang chơi đã hết giờ
   autoComplete: async () => {
     const sql = `UPDATE bookings

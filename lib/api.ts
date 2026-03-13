@@ -156,6 +156,7 @@ export interface ApiBooking {
 
 export interface ApiOrder {
   id: string
+  orderCode: string
   userId: string | null
   customerName: string
   customerPhone: string
@@ -265,12 +266,13 @@ function transformBooking(raw: any): ApiBooking {
 function transformOrder(raw: any): ApiOrder {
   return {
     id: raw.id,
+    orderCode: raw.order_code || '',
     userId: raw.user_id,
     customerName: raw.customer_name,
     customerPhone: raw.customer_phone,
     customerEmail: raw.customer_email,
-    shippingAddress: raw.shipping_address,
-    amount: parseFloat(raw.amount),
+    shippingAddress: raw.shipping_address || raw.customer_address,
+    amount: parseFloat(raw.total || raw.amount || 0),
     status: raw.status,
     paymentMethod: raw.payment_method,
     note: raw.note,
@@ -278,7 +280,7 @@ function transformOrder(raw: any): ApiOrder {
       productId: item.product_id,
       productName: item.product_name || item.name,
       sku: item.sku,
-      quantity: item.quantity,
+      quantity: item.qty || item.quantity,
       price: parseFloat(item.price),
     })),
     createdAt: raw.created_at,
@@ -600,6 +602,20 @@ export const bookingApi = {
     }
     return { success: false, error: res.message }
   },
+
+  // Đổi lịch booking
+  reschedule: async (id: string, data: {
+    booking_date: string; time_start: string; time_end: string; amount?: number
+  }) => {
+    const res = await apiFetch<any>(`/bookings/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+    if (res.success && res.data) {
+      return { success: true, booking: transformBooking(res.data), message: res.message }
+    }
+    return { success: false, error: res.message }
+  },
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -638,9 +654,13 @@ export const orderApi = {
 
   create: async (data: {
     customer_name: string; customer_phone: string;
-    customer_email?: string; shipping_address: string;
+    customer_email?: string; customer_address?: string; shipping_address?: string;
+    delivery_method?: string; pickup_branch_id?: number;
+    subtotal?: number; shipping_fee?: number; total?: number;
+    customer_coords?: { lat: number; lng: number } | null;
+    fulfilling_warehouse?: string;
     payment_method?: string; note?: string;
-    items: { product_id: number; quantity: number; price: number }[]
+    items: { product_id: number; quantity: number; price: number; product_name?: string }[]
   }) => {
     const res = await apiFetch<any>('/orders', {
       method: 'POST',
@@ -694,7 +714,7 @@ export const inventoryApi = {
   },
 
   importStock: async (data: {
-    warehouse_id: number; sku: string; quantity: number; note?: string
+    warehouse_id: number; sku: string; quantity: number; cost?: number; note?: string
   }) => {
     return apiFetch('/inventory/import', {
       method: 'POST',
@@ -702,13 +722,14 @@ export const inventoryApi = {
         sku: data.sku,
         warehouseId: data.warehouse_id,
         qty: data.quantity,
+        cost: data.cost || 0,
         note: data.note,
       }),
     })
   },
 
   exportStock: async (data: {
-    warehouse_id: number; sku: string; quantity: number; note?: string
+    warehouse_id: number; sku: string; quantity: number; cost?: number; note?: string
   }) => {
     return apiFetch('/inventory/export', {
       method: 'POST',
@@ -716,6 +737,7 @@ export const inventoryApi = {
         sku: data.sku,
         warehouseId: data.warehouse_id,
         qty: data.quantity,
+        cost: data.cost || 0,
         note: data.note,
       }),
     })
@@ -726,10 +748,15 @@ export const inventoryApi = {
 // TRANSFERS API
 // ═══════════════════════════════════════════════════════════════
 
+const toApiTransferStatus = (status?: string) => {
+  if (!status) return status
+  return status === 'in-transit' ? 'in_transit' : status
+}
+
 export const transferApi = {
   getAll: async (filters?: { status?: string; fromWarehouse?: number; toWarehouse?: number }) => {
     const params = new URLSearchParams()
-    if (filters?.status) params.set('status', filters.status)
+    if (filters?.status) params.set('status', toApiTransferStatus(filters.status) || filters.status)
     if (filters?.fromWarehouse) params.set('fromWarehouse', String(filters.fromWarehouse))
     if (filters?.toWarehouse) params.set('toWarehouse', String(filters.toWarehouse))
     const qs = params.toString()
@@ -740,7 +767,9 @@ export const transferApi = {
 
   create: async (data: {
     from_warehouse_id: number; to_warehouse_id: number;
-    note?: string; items: { sku: string; quantity: number }[]
+    reason?: string; note?: string; pickup_method?: string;
+    customer_name?: string; customer_phone?: string;
+    items: { sku: string; name?: string; qty: number; available_at_request?: number }[]
   }) => {
     return apiFetch('/transfers', {
       method: 'POST',
@@ -748,10 +777,10 @@ export const transferApi = {
     })
   },
 
-  updateStatus: async (id: string, status: string) => {
+  updateStatus: async (id: string, status: string, exportedQtys?: Record<string, number>) => {
     return apiFetch(`/transfers/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: toApiTransferStatus(status), exportedQtys }),
     })
   },
 }
@@ -774,12 +803,23 @@ export const purchaseOrderApi = {
   getSuppliers: async () => apiFetch('/purchase-orders/suppliers'),
 
   create: async (data: {
-    supplier_id: number; warehouse_id: number; note?: string;
-    items: { sku: string; quantity: number; price: number }[]
+    supplier_id: number; warehouse_id: number; total_value?: number; note?: string;
+    items: { sku: string; name?: string; quantity?: number; qty?: number; price?: number; unit_cost?: number }[]
   }) => {
     return apiFetch('/purchase-orders', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        supplier_id: data.supplier_id,
+        warehouse_id: data.warehouse_id,
+        total_value: data.total_value || data.items.reduce((s, i) => (i.qty || i.quantity || 0) * (i.unit_cost || i.price || 0), 0),
+        note: data.note,
+        items: data.items.map(i => ({
+          sku: i.sku,
+          name: i.name || i.sku,
+          qty: i.qty || i.quantity || 0,
+          unit_cost: i.unit_cost || i.price || 0,
+        })),
+      }),
     })
   },
 
@@ -808,22 +848,52 @@ export const salesOrderApi = {
 
   create: async (data: {
     branch_id: number; customer_name?: string; customer_phone?: string;
-    note?: string; items: { sku: string; quantity: number; price: number }[]
+    total?: number; discount?: number; final_total?: number;
+    payment_method?: string; note?: string;
+    items: { product_id?: number; product_name?: string; sku?: string; quantity?: number; qty?: number; price: number }[]
   }) => {
+    const mappedItems = data.items.map(i => ({
+      product_id: i.product_id || 0,
+      product_name: i.product_name || i.sku || '',
+      price: i.price,
+      qty: i.qty || i.quantity || 0,
+    }))
+    const total = data.total || mappedItems.reduce((s, i) => s + i.price * i.qty, 0)
+    const discount = data.discount || 0
+    const finalTotal = data.final_total || (total - discount)
     return apiFetch('/sales-orders', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        branch_id: data.branch_id,
+        customer_name: data.customer_name,
+        customer_phone: data.customer_phone,
+        total,
+        discount,
+        final_total: finalTotal,
+        payment_method: data.payment_method,
+        note: data.note,
+        items: mappedItems,
+      }),
     })
   },
 
-  approve: async (id: string) => {
-    return apiFetch(`/sales-orders/${id}/approve`, { method: 'PATCH' })
+  approve: async (id: string, payload?: { payment_method?: string; note?: string }) => {
+    return apiFetch(`/sales-orders/${id}/approve`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload || {}),
+    })
   },
 
   reject: async (id: string, reason?: string) => {
     return apiFetch(`/sales-orders/${id}/reject`, {
       method: 'PATCH',
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reject_reason: reason }),
+    })
+  },
+
+  complete: async (id: string) => {
+    return apiFetch(`/sales-orders/${id}/complete`, {
+      method: 'PATCH',
     })
   },
 }
@@ -833,6 +903,24 @@ export const salesOrderApi = {
 // ═══════════════════════════════════════════════════════════════
 
 export const userApi = {
+  lookupByPhone: async (phone: string) => {
+    const params = new URLSearchParams()
+    params.set('phone', phone)
+    const res = await apiFetch<any>(`/users/lookup/phone?${params.toString()}`)
+    if (res.success) {
+      const users = (res.data || []).map((u: any) => ({
+        id: String(u.id),
+        userCode: u.user_code || '',
+        fullName: u.full_name || '',
+        phone: u.phone || '',
+        email: u.email || '',
+        role: u.role || 'user',
+      }))
+      return { users }
+    }
+    return { users: [] }
+  },
+
   getAll: async (filters?: { role?: string; search?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams()
     if (filters?.role) params.set('role', filters.role)
@@ -893,3 +981,4 @@ export const userApi = {
     return apiFetch(`/users/${id}`, { method: 'DELETE' })
   },
 }
+

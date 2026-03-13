@@ -39,22 +39,27 @@ const poStepperSteps = [
   { label: "Đã nhận", icon: <Package className="h-3 w-3" /> },
 ]
 
+function normalizePOStatus(status: string) {
+  const map: Record<string, string> = { pending: 'sent', 'in-transit': 'shipping', delivered: 'received' }
+  return map[status] || status
+}
+
 function getPOStep(status: string) {
   switch (status) {
     case "draft": return 0
-    case "pending": return 1
+    case "sent": return 1
     case "confirmed": return 2
-    case "in-transit": return 3
-    case "delivered": return 4
+    case "shipping": return 3
+    case "received": return 4
     case "cancelled": return -1
     default: return 0
   }
 }
 
 // ── PO Detail Sheet ────────────────────────────────────────────────────────
-function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStatus: (id: string, status: string) => void }) {
+function PODetailSheet({ po, onUpdateStatus, suppliers }: { po: PurchaseOrder; onUpdateStatus: (id: string, status: string) => void; suppliers: any[] }) {
   const step = getPOStep(po.status)
-  const supplier = suppliers.find(s => s.name === po.supplier)
+  const supplier = suppliers.find((s: any) => s.name === po.supplier)
   const safeItems = Array.isArray(po.items) ? po.items : []
   const subtotal = safeItems.reduce((s, i) => s + i.qty * i.unitCost, 0)
   const vat = subtotal * 0.08
@@ -73,7 +78,7 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-mono text-sm text-primary font-semibold">{po.id}</p>
+            <p className="font-mono text-sm text-primary font-semibold">{(po as any).displayCode || po.id}</p>
             <p className="text-muted-foreground text-sm mt-0.5">{po.supplier}</p>
           </div>
           <POStatusBadge status={po.status} />
@@ -189,12 +194,12 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
               <Button variant="outline" className="flex-1" onClick={() => onUpdateStatus(po.id, "cancelled")}>
                 <XCircle className="h-4 w-4 mr-1" /> Huỷ
               </Button>
-              <Button className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => onUpdateStatus(po.id, "pending")}>
+              <Button className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => onUpdateStatus(po.id, "sent")}>
                 <Send className="h-4 w-4 mr-1" /> Gửi NCC
               </Button>
             </>
           )}
-          {po.status === "pending" && (
+          {po.status === "sent" && (
             <>
               <Button variant="outline" className="flex-1" onClick={() => onUpdateStatus(po.id, "cancelled")}>
                 <XCircle className="h-4 w-4 mr-1" /> Huỷ
@@ -205,11 +210,11 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
             </>
           )}
           {po.status === "confirmed" && (
-            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onUpdateStatus(po.id, "in-transit")}>
+            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onUpdateStatus(po.id, "shipping")}>
               <Truck className="h-4 w-4 mr-1" /> Đánh dấu vận chuyển
             </Button>
           )}
-          {po.status === "in-transit" && (
+          {po.status === "shipping" && (
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2">
                 <Warehouse className="h-4 w-4 text-muted-foreground" />
@@ -231,19 +236,19 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
                     supplier: po.supplier,
                     date: today,
                     warehouse: receiveWarehouse,
-                    items: safeItems.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitCost: i.unitCost })),
-                    note: `Nhập từ PO ${po.id} - ${po.supplier}`,
+                    items: safeItems.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitCost: (i as any).unitCost ?? (i as any).unit_cost ?? 0 })),
+                    note: `Nhập từ PO ${(po as any).displayCode || po.id} - ${po.supplier}`,
                     status: "pending",
                     createdBy: "Admin",
                     assignedTo: receiveWarehouse,
                   })
-                  onUpdateStatus(po.id, "delivered")
+                  onUpdateStatus(po.id, "received")
                 }}>
                 <Package className="h-4 w-4 mr-1" /> Tạo phiếu nhập kho → {receiveWarehouse}
               </Button>
             </div>
           )}
-          {po.status === "delivered" && (
+          {po.status === "received" && (
             <div className="flex items-center gap-2 text-sm text-green-600 w-full justify-center py-2">
               <CheckCircle2 className="h-4 w-4" /> Đã nhận hàng và nhập kho
             </div>
@@ -280,15 +285,21 @@ export default function AdminPurchaseOrders() {
         ])
         if (poRes.success && poRes.data) {
           setPurchaseOrders(poRes.data.map((p: any) => ({
-            id: String(p.id), supplier: p.supplier_name || p.supplier || "",
-            status: p.status || "draft",
+            id: String(p.id), displayCode: p.po_code || String(p.id).slice(0, 10), supplier: p.supplier_name || p.supplier || "",
+            status: normalizePOStatus(p.status || "draft"),
             createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
-            totalValue: p.total_value ?? 0, items: p.po_items || [],
+            totalValue: p.total_value ?? 0,
+            items: (p.po_items || []).map((it: any) => ({
+              sku: it.sku,
+              name: it.name || it.product_name || it.sku,
+              qty: it.qty ?? it.quantity ?? 0,
+              unitCost: it.unit_cost ?? it.unitCost ?? it.price ?? 0,
+            })),
             warehouse: p.warehouse_name || "Kho Hub", note: p.note || "",
           })))
         }
         if (supRes.success && supRes.data) setSuppliers(supRes.data)
-      } catch {}
+      } catch { }
       // Use inventory from context for SKU lookup
       setInventoryItems(ctx.inventory)
     }
@@ -300,14 +311,20 @@ export default function AdminPurchaseOrders() {
       const res = await purchaseOrderApi.getAll()
       if (res.success && res.data) {
         setPurchaseOrders(res.data.map((p: any) => ({
-          id: String(p.id), supplier: p.supplier_name || p.supplier || "",
-          status: p.status || "draft",
+          id: String(p.id), displayCode: p.po_code || String(p.id).slice(0, 10), supplier: p.supplier_name || p.supplier || "",
+          status: normalizePOStatus(p.status || "draft"),
           createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
-          totalValue: p.total_value ?? 0, items: p.po_items || [],
+          totalValue: p.total_value ?? 0,
+          items: (p.po_items || []).map((it: any) => ({
+            sku: it.sku,
+            name: it.name || it.product_name || it.sku,
+            qty: it.qty ?? it.quantity ?? 0,
+            unitCost: it.unit_cost ?? it.unitCost ?? it.price ?? 0,
+          })),
           warehouse: p.warehouse_name || "Kho Hub", note: p.note || "",
         })))
       }
-    } catch {}
+    } catch { }
   }
 
   // PO creation state
@@ -366,12 +383,14 @@ export default function AdminPurchaseOrders() {
 
   const handleCreatePO = async () => {
     if (poItems.length === 0 || !selectedSupplier) return
+    const whId = ctx.warehouses.find(w => w.name === poWarehouse)?.id || 4
     try {
       await purchaseOrderApi.create({
         supplier_id: selectedSupplier.id,
-        warehouse_id: 1, // default hub
+        warehouse_id: whId,
+        total_value: poTotal,
         note: poNote,
-        items: poItems.map(i => ({ sku: i.sku, quantity: i.qty, price: i.unitCost })),
+        items: poItems.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unit_cost: i.unitCost })),
       })
       await refreshPOs()
       setShowCreate(false)
@@ -387,7 +406,7 @@ export default function AdminPurchaseOrders() {
 
   const filtered = purchaseOrders.filter(po => {
     if (activeTab !== "all" && po.status !== activeTab) return false
-    if (search && !po.id.toLowerCase().includes(search.toLowerCase()) && !po.supplier.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !(po as any).displayCode?.toLowerCase().includes(search.toLowerCase()) && !po.id.toLowerCase().includes(search.toLowerCase()) && !po.supplier.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
@@ -604,8 +623,8 @@ export default function AdminPurchaseOrders() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         {[
           { title: "Tổng PO", value: purchaseOrders.length.toString(), icon: <FileText className="h-5 w-5" />, color: "bg-primary/10 text-primary" },
-          { title: "Chờ duyệt", value: purchaseOrders.filter(p => p.status === "pending").length.toString(), icon: <Clock className="h-5 w-5" />, color: "bg-amber-100 text-amber-600" },
-          { title: "Đang vận chuyển", value: purchaseOrders.filter(p => p.status === "in-transit").length.toString(), icon: <Truck className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
+          { title: "Đã gửi NCC", value: purchaseOrders.filter(p => p.status === "sent").length.toString(), icon: <Clock className="h-5 w-5" />, color: "bg-amber-100 text-amber-600" },
+          { title: "Đang vận chuyển", value: purchaseOrders.filter(p => p.status === "shipping").length.toString(), icon: <Truck className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
           { title: "Tổng giá trị", value: formatVND(purchaseOrders.reduce((s, p) => s + p.totalValue, 0)), icon: <Package className="h-5 w-5" />, color: "bg-secondary/10 text-secondary" },
         ].map((card, i) => (
           <Card key={i} className="hover:-translate-y-0.5 transition-all">
@@ -626,10 +645,10 @@ export default function AdminPurchaseOrders() {
           {[
             { value: "all", label: "Tất cả", count: purchaseOrders.length },
             { value: "draft", label: "Nháp", count: purchaseOrders.filter(p => p.status === "draft").length },
-            { value: "pending", label: "Chờ duyệt", count: purchaseOrders.filter(p => p.status === "pending").length },
+            { value: "sent", label: "Đã gửi", count: purchaseOrders.filter(p => p.status === "sent").length },
             { value: "confirmed", label: "Đã xác nhận", count: purchaseOrders.filter(p => p.status === "confirmed").length },
-            { value: "in-transit", label: "Vận chuyển", count: purchaseOrders.filter(p => p.status === "in-transit").length },
-            { value: "delivered", label: "Đã nhận", count: purchaseOrders.filter(p => p.status === "delivered").length },
+            { value: "shipping", label: "Vận chuyển", count: purchaseOrders.filter(p => p.status === "shipping").length },
+            { value: "received", label: "Đã nhận", count: purchaseOrders.filter(p => p.status === "received").length },
           ].map(tab => (
             <TabsTrigger key={tab.value} value={tab.value} className="text-xs gap-1.5 data-[state=active]:text-primary">
               {tab.label}
@@ -670,7 +689,7 @@ export default function AdminPurchaseOrders() {
             <TableBody>
               {filtered.map((po, idx) => (
                 <TableRow key={po.id} className={cn("hover:bg-muted/50", idx % 2 !== 0 && "bg-muted/20")}>
-                  <TableCell className="font-mono text-xs text-primary font-semibold">{po.id}</TableCell>
+                  <TableCell className="font-mono text-xs text-primary font-semibold">{(po as any).displayCode || po.id}</TableCell>
                   <TableCell className="text-sm">{po.supplier}</TableCell>
                   <TableCell className="text-sm">{po.createdDate}</TableCell>
                   <TableCell className="text-center text-sm">{Array.isArray(po.items) ? po.items.length : 0}</TableCell>
@@ -683,7 +702,7 @@ export default function AdminPurchaseOrders() {
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
                       </SheetTrigger>
-                      <PODetailSheet po={po} onUpdateStatus={handleUpdateStatus} />
+                      <PODetailSheet po={po} onUpdateStatus={handleUpdateStatus} suppliers={suppliers} />
                     </Sheet>
                   </TableCell>
                 </TableRow>

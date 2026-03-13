@@ -224,7 +224,7 @@ export default function EmployeeInventory() {
       setGrnRows(slip.items.map(item => ({
         sku: item.sku,
         qty: item.qty,
-        cost: item.unitCost,
+        cost: Number.isFinite(item.unitCost) ? item.unitCost : 0,
       })))
       setGrnWarehouse(slip.warehouse)
       setGrnSupplier(suppliers.find(s => s.name === slip.supplier)?.id.toString() || "")
@@ -683,7 +683,7 @@ export default function EmployeeInventory() {
                       </TableCell>
                       <TableCell>
                         <Input
-                          type="number" min={0} value={row.cost}
+                          type="number" min={0} value={Number.isFinite(row.cost) ? row.cost : 0}
                           onChange={e => {
                             const newRows = [...grnRows]
                             newRows[i].cost = parseInt(e.target.value) || 0
@@ -693,7 +693,7 @@ export default function EmployeeInventory() {
                         />
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">
-                        {formatVND(row.qty * row.cost)}
+                        {formatVND((row.qty || 0) * (Number.isFinite(row.cost) ? row.cost : 0))}
                       </TableCell>
                       <TableCell>
                         <Button
@@ -711,7 +711,9 @@ export default function EmployeeInventory() {
 
               <div className="flex justify-between items-center bg-muted/50 px-4 py-3 rounded-lg">
                 <span className="text-sm font-medium">Tổng cộng: {grnRows.filter(r => r.sku).length} sản phẩm</span>
-                <span className="font-serif text-lg font-bold text-blue-600">{formatVND(grnRows.reduce((s, r) => s + r.qty * r.cost, 0))}</span>
+                <span className="font-serif text-lg font-bold text-blue-600">
+                  {formatVND(grnRows.reduce((s, r) => s + (r.qty || 0) * (Number.isFinite(r.cost) ? r.cost : 0), 0))}
+                </span>
               </div>
 
               <div>
@@ -1265,7 +1267,7 @@ export default function EmployeeInventory() {
                           t.status === "rejected" && "border-red-200 bg-red-50/30"
                         )} onClick={() => { setSelectedTransfer(t); setTransferDetailOpen(true) }}>
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className="font-mono text-xs font-bold text-purple-600">{t.id}</span>
+                            <span className="font-mono text-xs font-bold text-purple-600">{t.transferCode || t.id}</span>
                             <div className="flex items-center gap-1.5">
                               <Badge className={cn("text-[10px]", pickupMethodColor(t.pickupMethod))}>
                                 {pickupMethodLabel(t.pickupMethod)}
@@ -1356,7 +1358,7 @@ export default function EmployeeInventory() {
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-mono text-sm font-bold text-purple-600">{t.id}</span>
+                              <span className="font-mono text-sm font-bold text-purple-600">{t.transferCode || t.id}</span>
                               <Badge className={cn("text-[10px]", pickupMethodColor(t.pickupMethod))}>
                                 {pickupMethodLabel(t.pickupMethod)}
                               </Badge>
@@ -1427,7 +1429,7 @@ export default function EmployeeInventory() {
                   <DialogHeader>
                     <DialogTitle className="font-serif flex items-center gap-2">
                       <Repeat className="h-5 w-5 text-purple-600" />
-                      Phiếu điều chuyển {selectedTransfer.id}
+                      Phiếu điều chuyển {selectedTransfer.transferCode || selectedTransfer.id}
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">
@@ -1547,7 +1549,7 @@ export default function EmployeeInventory() {
                           {exportTransferTarget.pickupMethod === "customer" && <Users className="h-3 w-3 mr-1" />}
                           {pickupMethodLabel(exportTransferTarget.pickupMethod)}
                         </Badge>
-                        <span className="text-xs text-purple-600 font-mono">{exportTransferTarget.id}</span>
+                        <span className="text-xs text-purple-600 font-mono">{exportTransferTarget.transferCode || exportTransferTarget.id}</span>
                       </div>
                     </div>
 
@@ -1620,7 +1622,7 @@ export default function EmployeeInventory() {
                       <div>
                         <Label className="text-sm">Mã phiếu xuất</Label>
                         <div className="flex items-center gap-2 px-3 py-2 mt-1 bg-muted/50 rounded-md border text-sm font-mono text-purple-600">
-                          XKDC-{exportTransferTarget.id}
+                          XKDC-{exportTransferTarget.transferCode || exportTransferTarget.id}
                         </div>
                       </div>
                     </div>
@@ -1642,7 +1644,7 @@ export default function EmployeeInventory() {
                     <div className="p-4 bg-green-50 rounded-lg border border-green-200 space-y-3">
                       <p className="text-sm font-semibold text-green-800 flex items-center gap-1.5"><ClipboardCheck className="h-4 w-4" /> Tóm tắt phiếu xuất kho điều chuyển</p>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Mã phiếu xuất:</span> <strong className="font-mono text-purple-600">XKDC-{exportTransferTarget.id}</strong></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">Mã phiếu xuất:</span> <strong className="font-mono text-purple-600">XKDC-{exportTransferTarget.transferCode || exportTransferTarget.id}</strong></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Ngày xuất:</span> <strong>{exportTransferDate}</strong></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Kho xuất:</span> <strong className="text-orange-700">{exportTransferTarget.fromWarehouse}</strong></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Kho nhận:</span> <strong className="text-teal-700">{exportTransferTarget.toWarehouse}</strong></div>

@@ -179,6 +179,29 @@ const confirmPayment = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// PATCH /api/bookings/:id/reschedule
+const reschedule = async (req, res, next) => {
+  try {
+    const { booking_date, time_start, time_end, amount } = req.body;
+    if (!booking_date || !time_start || !time_end) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin ngày/giờ mới' });
+    }
+
+    // Reject rescheduling to past time slots
+    const now = new Date();
+    const [year, month, day] = booking_date.split('-').map(Number);
+    const startHour = parseInt(time_start.split(':')[0]);
+    const slotStart = new Date(year, month - 1, day, startHour, 0, 0);
+    if (slotStart <= now) {
+      return res.status(400).json({ success: false, message: 'Không thể đổi sang khung giờ đã qua' });
+    }
+
+    const booking = await Booking.reschedule(req.params.id, { booking_date, time_start, time_end, amount });
+    if (!booking) return res.status(404).json({ success: false, message: 'Không tìm thấy booking' });
+    return success(res, booking, 'Đổi lịch thành công');
+  } catch (err) { next(err); }
+};
+
 // DELETE /api/bookings/:id
 const deleteBooking = async (req, res, next) => {
   try {
@@ -222,4 +245,4 @@ const checkin = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getMyBookings, getById, create, createRecurring, createHold, confirmPayment, updateStatus, deleteBooking, checkin };
+module.exports = { getAll, getMyBookings, getById, create, createRecurring, createHold, confirmPayment, updateStatus, reschedule, deleteBooking, checkin };

@@ -32,13 +32,15 @@ export function BookingStatusBadge({ status }: { status: string }) {
 export function POStatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
     draft: { label: "Nháp", className: "bg-gray-100 text-gray-600 border-gray-200", icon: <FileText className="h-3 w-3" /> },
-    pending: { label: "Chờ duyệt", className: "bg-amber-100 text-amber-800 border-amber-200", icon: <Clock className="h-3 w-3" /> },
+    sent: { label: "Đã gửi NCC", className: "bg-amber-100 text-amber-800 border-amber-200", icon: <Clock className="h-3 w-3" /> },
     confirmed: { label: "Đã xác nhận", className: "bg-blue-100 text-blue-800 border-blue-200", icon: <CheckCircle2 className="h-3 w-3" /> },
-    "in-transit": { label: "Đang vận chuyển", className: "bg-indigo-100 text-indigo-800 border-indigo-200", icon: <Truck className="h-3 w-3" /> },
-    delivered: { label: "Đã nhận", className: "bg-green-100 text-green-800 border-green-200", icon: <Package className="h-3 w-3" /> },
+    shipping: { label: "Đang vận chuyển", className: "bg-indigo-100 text-indigo-800 border-indigo-200", icon: <Truck className="h-3 w-3" /> },
+    received: { label: "Đã nhận", className: "bg-green-100 text-green-800 border-green-200", icon: <Package className="h-3 w-3" /> },
     cancelled: { label: "Đã huỷ", className: "bg-red-100 text-red-800 border-red-200", icon: <XCircle className="h-3 w-3" /> },
   }
-  const c = config[status] || config.draft
+  const legacyMap: Record<string, string> = { pending: 'sent', 'in-transit': 'shipping', delivered: 'received' }
+  const key = config[status] ? status : (legacyMap[status] || status)
+  const c = config[key] || config.draft
   return (
     <Badge variant="outline" className={cn("flex items-center gap-1 text-xs font-medium", c.className)}>
       {c.icon} {c.label}

@@ -63,7 +63,7 @@ function AnimatedCheckmark() {
 
 const paymentLabels: Record<string, string> = {
   momo: "MoMo",
-  vnpay: "VNPay",
+  vietqr: "QR Chuyển khoản (VietQR)",
   bank: "Chuyển khoản ngân hàng",
   wallet: "Ví BadmintonHub",
 }
@@ -258,7 +258,7 @@ function DirectionsSection({ booking, userAddress }: { booking: CompletedBooking
           const pos = data.results[0].position
           setUserCoords({ lat: pos.lat, lng: pos.lon })
         }
-      } catch {}
+      } catch { }
     }
     geocode()
   }, [userAddress, booking.courtLat])
@@ -492,8 +492,8 @@ export default function BookingSuccessPage() {
                 <div>
                   <p className="text-sm font-semibold text-amber-800">Lưu ý cho khách vãng lai</p>
                   <p className="text-xs text-amber-700 mt-1">
-                    Bạn đang đặt sân với vai trò khách. Hóa đơn này là bằng chứng thanh toán của bạn. 
-                    Vui lòng <strong>in hoặc tải về</strong> hóa đơn để mang theo khi đến sân. 
+                    Bạn đang đặt sân với vai trò khách. Hóa đơn này là bằng chứng thanh toán của bạn.
+                    Vui lòng <strong>in hoặc tải về</strong> hóa đơn để mang theo khi đến sân.
                     Bạn sẽ không thể xem lại lịch đặt trên hệ thống.
                   </p>
                   <div className="flex gap-2 mt-3">

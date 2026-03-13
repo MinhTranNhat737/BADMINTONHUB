@@ -24,6 +24,16 @@ const getAll = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// GET /api/users/lookup/phone?phone=... — Tra cứu khách theo SĐT (admin/employee)
+const lookupByPhone = async (req, res, next) => {
+  try {
+    const phone = String(req.query.phone || '').trim();
+    if (!phone) return success(res, []);
+    const matches = await User.findCustomersByPhone(phone, 8);
+    return success(res, matches);
+  } catch (err) { next(err); }
+};
+
 // GET /api/users/:id — Chi tiết tài khoản
 const getById = async (req, res, next) => {
   try {
@@ -134,4 +144,4 @@ const remove = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getById, create, update, resetPassword, remove };
+module.exports = { getAll, lookupByPhone, getById, create, update, resetPassword, remove };

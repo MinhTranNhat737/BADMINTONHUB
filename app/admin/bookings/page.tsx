@@ -24,7 +24,7 @@ import { branchApi, courtApi, bookingApi, userApi, ApiBooking, ApiBranch, ApiCou
 import { cn } from "@/lib/utils"
 import {
   Search, Download, Plus, Eye, Edit2, Trash2, ChevronDown, ChevronUp,
-  Calendar as CalendarIcon, Clock, Users, MapPin, Phone, Mail, CheckCircle2,
+  Calendar as CalendarIcon, Clock, Users, MapPin, Phone, Mail, CheckCircle2, Check,
   Play, XCircle, QrCode, DollarSign, TrendingUp, AlertTriangle, LayoutList,
   CalendarDays, RefreshCw, ArrowUpDown, Lock, Repeat,
   ChevronLeft, ChevronRight, X, Loader2, Printer, Building2
@@ -507,8 +507,8 @@ function BookingFormDialog({
     const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 
     const entry: BookingHistoryEntry = {
-      id: editBooking?.id || generateBookingId(),
-      bookingCode: editBooking?.bookingCode || generateBookingId(),
+      id: editBooking?.id || '',
+      bookingCode: editBooking?.bookingCode || '',
       court: selectedCourt.name,
       branch: selectedCourt.branch,
       date: `${bookingDate.getFullYear()}-${(bookingDate.getMonth() + 1).toString().padStart(2, '0')}-${bookingDate.getDate().toString().padStart(2, '0')}`,
@@ -726,7 +726,6 @@ function ScheduleView({
 
   // Quick-book dialog state
   const [quickBookOpen, setQuickBookOpen] = useState(false)
-  const [quickBookSlot, setQuickBookSlot] = useState<{ courtId: number; courtName: string; time: string; timeEnd: string; price: number } | null>(null)
   const [qbName, setQbName] = useState("")
   const [qbPhone, setQbPhone] = useState("")
   const [qbPayment, setQbPayment] = useState("cash")
@@ -734,6 +733,13 @@ function ScheduleView({
   const [qbRecurring, setQbRecurring] = useState(false)
   const [qbWeeks, setQbWeeks] = useState("4")
   const [qbSaving, setQbSaving] = useState(false)
+
+  // Multi-select drag state (Excel-style)
+  type SlotKey = { courtId: number; time: string }
+  const [selectedSlots, setSelectedSlots] = useState<SlotKey[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragCourtId, setDragCourtId] = useState<number | null>(null)
+  const [dragStartTimeIdx, setDragStartTimeIdx] = useState<number | null>(null)
 
   // User account picker state
   const [qbUserSearch, setQbUserSearch] = useState("")
@@ -764,6 +770,15 @@ function ScheduleView({
       setSelectedBranch(String(branches[0].id))
     }
   }, [branches, selectedBranch])
+
+  // Global mouseup to end drag
+  useEffect(() => {
+    const handleMouseUp = () => {
+      if (isDragging) setIsDragging(false)
+    }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [isDragging])
 
   const branchCourts = useMemo(() => {
     return allCourts.filter(c => c.branchId === parseInt(selectedBranch))
@@ -809,11 +824,61 @@ function ScheduleView({
     return { totalSlots, bookedSlots, holdSlots, freeSlots: totalSlots - bookedSlots - holdSlots }
   }, [branchCourts, scheduleMap])
 
-  // Click empty slot → open quick-book
-  const handleSlotClick = (court: CourtItem, time: string) => {
-    const endH = parseInt(time.split(":")[0]) + 1
-    const endTimeStr = `${endH.toString().padStart(2, '0')}:00`
-    setQuickBookSlot({ courtId: court.id, courtName: court.name, time, timeEnd: endTimeStr, price: court.price })
+  // Helper: check if slot is selected
+  const isSlotSelected = useCallback((courtId: number, time: string) => {
+    return selectedSlots.some(s => s.courtId === courtId && s.time === time)
+  }, [selectedSlots])
+
+  // ─── Multi-select drag handlers ───
+  const handleSlotMouseDown = (court: CourtItem, time: string, timeIdx: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    const cell = scheduleMap[court.id]?.[time]
+    const isBooked = cell?.status === 'booked'
+    const isHold = cell?.status === 'hold'
+    const past = isSlotPast(scheduleDate, time)
+    if (isBooked || isHold || past) return
+
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+click: toggle single slot
+      setSelectedSlots(prev => {
+        const exists = prev.some(s => s.courtId === court.id && s.time === time)
+        if (exists) return prev.filter(s => !(s.courtId === court.id && s.time === time))
+        return [...prev, { courtId: court.id, time }]
+      })
+    } else {
+      // Normal click: start drag
+      setIsDragging(true)
+      setDragCourtId(court.id)
+      setDragStartTimeIdx(timeIdx)
+      setSelectedSlots([{ courtId: court.id, time }])
+    }
+  }
+
+  const handleSlotMouseEnter = (court: CourtItem, time: string, timeIdx: number) => {
+    if (!isDragging || dragCourtId !== court.id || dragStartTimeIdx === null) return
+    const cell = scheduleMap[court.id]?.[time]
+    const isBooked = cell?.status === 'booked'
+    const isHold = cell?.status === 'hold'
+    const past = isSlotPast(scheduleDate, time)
+    if (isBooked || isHold || past) return
+
+    // Select range from dragStart to current
+    const minIdx = Math.min(dragStartTimeIdx, timeIdx)
+    const maxIdx = Math.max(dragStartTimeIdx, timeIdx)
+    const newSlots: SlotKey[] = []
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const t = timeSlots[i]
+      const c = scheduleMap[court.id]?.[t]
+      const isPast = isSlotPast(scheduleDate, t)
+      if (!c || c.status === 'booked' || c.status === 'hold' || isPast) continue
+      newSlots.push({ courtId: court.id, time: t })
+    }
+    setSelectedSlots(newSlots)
+  }
+
+  // Open quick-book with selected slots
+  const openQuickBookForSelection = () => {
+    if (selectedSlots.length === 0) return
     setQbName("")
     setQbPhone("")
     setQbPayment("cash")
@@ -826,42 +891,108 @@ function ScheduleView({
     setQuickBookOpen(true)
   }
 
-  // Submit quick-book
+  // Auto open dialog after drag ends (if slots selected)
+  useEffect(() => {
+    if (!isDragging && selectedSlots.length > 0 && !quickBookOpen) {
+      // Small delay to distinguish click vs drag
+      const timer = setTimeout(() => openQuickBookForSelection(), 150)
+      return () => clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDragging])
+
+  // Remove slot from selection
+  const removeSlotFromSelection = (courtId: number, time: string) => {
+    setSelectedSlots(prev => prev.filter(s => !(s.courtId === courtId && s.time === time)))
+  }
+
+  // Compute selected slots info for dialog
+  const selectedSlotsInfo = useMemo(() => {
+    // Group by court
+    const groups: Record<number, { court: CourtItem; times: string[] }> = {}
+    selectedSlots.forEach(s => {
+      if (!groups[s.courtId]) {
+        const court = branchCourts.find(c => c.id === s.courtId)
+        if (court) groups[s.courtId] = { court, times: [] }
+      }
+      if (groups[s.courtId]) groups[s.courtId].times.push(s.time)
+    })
+    // Sort times
+    Object.values(groups).forEach(g => g.times.sort())
+    return groups
+  }, [selectedSlots, branchCourts])
+
+  const selectedTotalPrice = useMemo(() => {
+    return selectedSlots.reduce((sum, s) => {
+      const court = branchCourts.find(c => c.id === s.courtId)
+      return sum + (court?.price || 0)
+    }, 0)
+  }, [selectedSlots, branchCourts])
+
+  const selectedTotalSlots = selectedSlots.length
+
+  // Submit quick-book — book all selected slots
   const handleQuickBook = async () => {
-    if (!quickBookSlot || !qbName.trim() || !qbPhone.trim()) return
+    if (selectedSlots.length === 0 || !qbName.trim() || !qbPhone.trim()) return
     setQbSaving(true)
     try {
       const dateStr = `${scheduleDate.getFullYear()}-${String(scheduleDate.getMonth() + 1).padStart(2, '0')}-${String(scheduleDate.getDate()).padStart(2, '0')}`
-      if (qbRecurring) {
-        await bookingApi.createRecurring({
-          court_id: quickBookSlot.courtId,
-          time_start: quickBookSlot.time,
-          time_end: quickBookSlot.timeEnd,
-          start_date: dateStr,
-          weeks: parseInt(qbWeeks),
-          customer_name: qbName.trim(),
-          customer_phone: qbPhone.trim(),
-          amount: quickBookSlot.price,
-          payment_method: qbPayment,
-          note: qbNote.trim(),
-          ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
-        })
-      } else {
-        await bookingApi.create({
-          court_id: quickBookSlot.courtId,
-          booking_date: dateStr,
-          time_start: quickBookSlot.time,
-          time_end: quickBookSlot.timeEnd,
-          slots: 1,
-          customer_name: qbName.trim(),
-          customer_phone: qbPhone.trim(),
-          amount: quickBookSlot.price,
-          payment_method: qbPayment,
-          note: qbNote.trim(),
-          ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
-        })
+
+      // Group contiguous slots by court for efficient booking
+      for (const [, group] of Object.entries(selectedSlotsInfo)) {
+        const sortedTimes = [...group.times].sort()
+        // Find contiguous ranges
+        const ranges: { start: string; end: string }[] = []
+        let rangeStart = sortedTimes[0]
+        let lastH = parseInt(sortedTimes[0].split(':')[0])
+        for (let i = 1; i < sortedTimes.length; i++) {
+          const curH = parseInt(sortedTimes[i].split(':')[0])
+          if (curH === lastH + 1) {
+            lastH = curH
+          } else {
+            ranges.push({ start: rangeStart, end: `${(lastH + 1).toString().padStart(2, '0')}:00` })
+            rangeStart = sortedTimes[i]
+            lastH = curH
+          }
+        }
+        ranges.push({ start: rangeStart, end: `${(lastH + 1).toString().padStart(2, '0')}:00` })
+
+        // Create booking for each contiguous range
+        for (const range of ranges) {
+          const slotCount = parseInt(range.end.split(':')[0]) - parseInt(range.start.split(':')[0])
+          if (qbRecurring) {
+            await bookingApi.createRecurring({
+              court_id: group.court.id,
+              time_start: range.start,
+              time_end: range.end,
+              start_date: dateStr,
+              weeks: parseInt(qbWeeks),
+              customer_name: qbName.trim(),
+              customer_phone: qbPhone.trim(),
+              amount: group.court.price * slotCount,
+              payment_method: qbPayment,
+              note: qbNote.trim(),
+              ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
+            })
+          } else {
+            await bookingApi.create({
+              court_id: group.court.id,
+              booking_date: dateStr,
+              time_start: range.start,
+              time_end: range.end,
+              slots: slotCount,
+              customer_name: qbName.trim(),
+              customer_phone: qbPhone.trim(),
+              amount: group.court.price * slotCount,
+              payment_method: qbPayment,
+              note: qbNote.trim(),
+              ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
+            })
+          }
+        }
       }
       setQuickBookOpen(false)
+      setSelectedSlots([])
       onRefresh()
     } catch {
       alert("Lỗi khi đặt lịch. Vui lòng thử lại.")
@@ -915,8 +1046,28 @@ function ScheduleView({
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-green-100 border border-green-300" /> Trống</span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-primary/20 border border-primary/40" /> Đã đặt</span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-100 border border-amber-300" /> Giữ chỗ</span>
+          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-blue-200 border border-blue-400" /> Đang chọn</span>
         </div>
       </div>
+
+      {/* Selection bar */}
+      {selectedSlots.length > 0 && !quickBookOpen && (
+        <div className="flex items-center justify-between rounded-lg border-2 border-blue-400 bg-blue-50 dark:bg-blue-950/20 px-4 py-2.5 animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <Badge className="bg-blue-600 text-white">{selectedTotalSlots} slot</Badge>
+            <span className="text-sm font-medium">Tổng: <strong className="text-primary">{formatVND(selectedTotalPrice)}</strong></span>
+            <span className="text-xs text-muted-foreground">• Ctrl+Click để chọn thêm • Kéo để bôi đen</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedSlots([])}>
+              <X className="h-3.5 w-3.5 mr-1" /> Bỏ chọn
+            </Button>
+            <Button size="sm" onClick={openQuickBookForSelection} className="bg-primary">
+              <Plus className="h-3.5 w-3.5 mr-1" /> Đặt {selectedTotalSlots} slot
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Schedule Grid */}
       <Card>
@@ -962,10 +1113,12 @@ function ScheduleView({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div
-                                  onClick={canBook ? () => handleSlotClick(c, time) : undefined}
+                                  onMouseDown={canBook ? (e) => handleSlotMouseDown(c, time, ti, e) : undefined}
+                                  onMouseEnter={() => handleSlotMouseEnter(c, time, ti)}
                                   className={cn(
-                                    "rounded-md px-2 py-1.5 text-center transition-colors min-h-[32px] flex items-center justify-center",
-                                    isEmpty && !past && "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/20 dark:border-green-800 cursor-pointer hover:bg-green-100 hover:border-green-400 hover:shadow-sm",
+                                    "rounded-md px-2 py-1.5 text-center transition-colors min-h-[32px] flex items-center justify-center select-none",
+                                    isEmpty && !past && !isSlotSelected(c.id, time) && "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/20 dark:border-green-800 cursor-pointer hover:bg-green-100 hover:border-green-400 hover:shadow-sm",
+                                    isEmpty && !past && isSlotSelected(c.id, time) && "bg-blue-100 text-blue-800 border-2 border-blue-400 dark:bg-blue-900/30 dark:border-blue-500 cursor-pointer ring-1 ring-blue-300 shadow-sm",
                                     isEmpty && past && "bg-court-past text-slate-400 border border-slate-200",
                                     isBooked && "bg-primary/10 text-primary border border-primary/30 font-medium",
                                     isHold && "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-800"
@@ -974,7 +1127,8 @@ function ScheduleView({
                                   {isBooked && <span className="truncate max-w-[110px]">{cell.bookedBy || "Đã đặt"}</span>}
                                   {isHold && "Giữ chỗ"}
                                   {isEmpty && past && <Lock className="h-3 w-3" />}
-                                  {isEmpty && !past && <Plus className="h-3 w-3 opacity-40" />}
+                                  {isEmpty && !past && isSlotSelected(c.id, time) && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                                  {isEmpty && !past && !isSlotSelected(c.id, time) && <Plus className="h-3 w-3 opacity-40" />}
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent>
@@ -1014,25 +1168,35 @@ function ScheduleView({
               Đặt lịch nhanh
             </DialogTitle>
           </DialogHeader>
-          {quickBookSlot && (
+          {selectedSlots.length > 0 && (
             <div className="space-y-4">
-              {/* Slot info */}
-              <div className="rounded-lg bg-muted/50 p-3 space-y-1 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Sân:</span>
-                  <span className="font-semibold">{quickBookSlot.courtName}</span>
-                </div>
+              {/* Selected slots info */}
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm max-h-[200px] overflow-y-auto">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Ngày:</span>
                   <span className="font-medium">{dayNames[scheduleDate.getDay()]}, {dateLabel}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Giờ:</span>
-                  <span className="font-medium">{quickBookSlot.time} - {quickBookSlot.timeEnd}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Giá:</span>
-                  <span className="font-semibold text-primary">{formatVND(quickBookSlot.price)}</span>
+                {Object.values(selectedSlotsInfo).map(group => (
+                  <div key={group.court.id} className="space-y-1">
+                    <p className="font-semibold text-xs text-primary">{group.court.name} — {formatVND(group.court.price)}/h</p>
+                    <div className="flex flex-wrap gap-1">
+                      {group.times.map(t => {
+                        const endH = parseInt(t.split(':')[0]) + 1
+                        return (
+                          <Badge key={t} variant="secondary" className="text-[11px] gap-1 pr-1">
+                            {t}-{endH.toString().padStart(2, '0')}:00
+                            <button type="button" className="hover:text-red-500 ml-0.5" onClick={() => removeSlotFromSelection(group.court.id, t)}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1 border-t">
+                  <span className="text-muted-foreground">{selectedTotalSlots} slot</span>
+                  <span className="font-bold text-primary">{formatVND(selectedTotalPrice)}</span>
                 </div>
               </div>
 
@@ -1152,8 +1316,8 @@ function ScheduleView({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Sẽ tạo {qbWeeks} booking vào {dayNames[scheduleDate.getDay()]} từ {quickBookSlot.time} - {quickBookSlot.timeEnd}.
-                      Tổng: <strong className="text-foreground">{formatVND(quickBookSlot.price * parseInt(qbWeeks))}</strong>
+                      Sẽ tạo {qbWeeks} booking × {selectedTotalSlots} slot.
+                      Tổng: <strong className="text-foreground">{formatVND(selectedTotalPrice * parseInt(qbWeeks))}</strong>
                     </p>
                   </div>
                 )}
@@ -1161,10 +1325,10 @@ function ScheduleView({
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setQuickBookOpen(false)} disabled={qbSaving}>Huỷ</Button>
-            <Button onClick={handleQuickBook} disabled={qbSaving || !qbName.trim() || !qbPhone.trim()}>
+            <Button variant="outline" onClick={() => { setQuickBookOpen(false); setSelectedSlots([]) }} disabled={qbSaving}>Huỷ</Button>
+            <Button onClick={handleQuickBook} disabled={qbSaving || !qbName.trim() || !qbPhone.trim() || selectedSlots.length === 0}>
               {qbSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {qbRecurring ? `Đặt ${qbWeeks} tuần` : "Đặt lịch"}
+              {qbRecurring ? `Đặt ${qbWeeks} tuần × ${selectedTotalSlots} slot` : `Đặt ${selectedTotalSlots} slot`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1234,7 +1398,7 @@ export default function AdminBookings() {
         const [brRes, cRes] = await Promise.all([branchApi.getAll(), courtApi.getAll()])
         setBranches(brRes.map((b: any) => ({ id: b.id, name: b.name, address: b.address })))
         setAllCourts(cRes.map((c: any) => ({ id: c.id, name: c.name, branch: c.branchName || c.branch, branchId: c.branchId, type: c.type, price: c.price, indoor: c.indoor })))
-      } catch {}
+      } catch { }
       await refreshData()
       setHydrated(true)
     }
@@ -1247,7 +1411,7 @@ export default function AdminBookings() {
       const bks = (res.bookings || []).map(apiToBooking)
       setBookings(bks)
       setCourtBookings(bookingsToSlots(bks))
-    } catch {}
+    } catch { }
   }, [])
 
   // Status change

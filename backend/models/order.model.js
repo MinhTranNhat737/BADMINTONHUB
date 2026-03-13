@@ -2,6 +2,7 @@
 // Model: Orders (orders + order_items) — Đơn hàng online
 // ═══════════════════════════════════════════════════════════════
 const { query, getClient } = require('../config/database');
+const { generateCode } = require('../utils/code-generator');
 
 const Order = {
   // Lấy danh sách đơn (admin)
@@ -27,6 +28,17 @@ const Order = {
     values.push(limit, (page - 1) * limit);
 
     const result = await query(sql, values);
+
+    // Gắn items cho mỗi đơn
+    for (const order of result.rows) {
+      const items = await query(
+        `SELECT oi.*, p.sku, p.brand FROM order_items oi
+         JOIN products p ON p.id = oi.product_id
+         WHERE oi.order_id = $1`, [order.id]
+      );
+      order.items = items.rows;
+    }
+
     return { data: result.rows, total };
   },
 
@@ -53,6 +65,16 @@ const Order = {
   findByUser: async (userId) => {
     const sql = `SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC`;
     const result = await query(sql, [userId]);
+
+    for (const order of result.rows) {
+      const items = await query(
+        `SELECT oi.*, p.sku, p.brand FROM order_items oi
+         JOIN products p ON p.id = oi.product_id
+         WHERE oi.order_id = $1`, [order.id]
+      );
+      order.items = items.rows;
+    }
+
     return result.rows;
   },
 
@@ -66,14 +88,16 @@ const Order = {
               customer_coords, customer_name, customer_phone, customer_email, customer_address,
               note, subtotal, shipping_fee, total, payment_method, items } = data;
 
+      const order_code = await generateCode(client, 'DH', 'orders', 'order_code');
+
       const sql = `INSERT INTO orders (user_id, type, delivery_method, pickup_branch_id, fulfilling_warehouse,
                    customer_coords, customer_name, customer_phone, customer_email, customer_address,
-                   note, subtotal, shipping_fee, total, payment_method)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`;
+                   note, subtotal, shipping_fee, total, payment_method, order_code)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`;
       const result = await client.query(sql, [user_id, type, delivery_method, pickup_branch_id,
         fulfilling_warehouse, customer_coords ? JSON.stringify(customer_coords) : null,
         customer_name, customer_phone, customer_email, customer_address,
-        note, subtotal, shipping_fee || 0, total, payment_method]);
+        note, subtotal, shipping_fee || 0, total, payment_method, order_code]);
 
       const order = result.rows[0];
 
@@ -82,7 +106,7 @@ const Order = {
         await client.query(
           `INSERT INTO order_items (order_id, product_id, product_name, price, qty)
            VALUES ($1, $2, $3, $4, $5)`,
-          [order.id, item.product_id, item.product_name, item.price, item.qty]
+          [order.id, item.product_id, item.product_name, item.price, item.qty || item.quantity]
         );
       }
 

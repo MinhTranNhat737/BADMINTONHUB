@@ -39,7 +39,25 @@ const create = async (req, res, next) => {
 const updateStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
-    const po = await PurchaseOrder.updateStatus(req.params.id, status);
+
+    // DB constraint: draft|sent|confirmed|shipping|received|cancelled
+    // Backward-compat mapping (old UI values → DB values)
+    const legacyMap = {
+      pending: 'sent',
+      'in-transit': 'shipping',
+      delivered: 'received',
+    };
+    const normalizedStatus = legacyMap[status] || status;
+
+    const allowed = new Set(['draft', 'sent', 'confirmed', 'shipping', 'received', 'cancelled']);
+    if (!normalizedStatus || !allowed.has(normalizedStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Trạng thái PO không hợp lệ: ${String(status)}`
+      });
+    }
+
+    const po = await PurchaseOrder.updateStatus(req.params.id, normalizedStatus);
     if (!po) return res.status(404).json({ success: false, message: 'Không tìm thấy PO' });
     return success(res, po, 'Cập nhật trạng thái thành công');
   } catch (err) { next(err); }

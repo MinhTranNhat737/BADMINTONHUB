@@ -40,9 +40,12 @@ const create = async (req, res, next) => {
 // PATCH /api/sales-orders/:id/approve (admin)
 const approve = async (req, res, next) => {
   try {
+    const { payment_method, note } = req.body || {};
     const order = await SalesOrder.updateStatus(req.params.id, {
       status: 'approved',
-      approved_by: req.user.id
+      approved_by: req.user.id,
+      payment_method,
+      note
     });
     if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn bán' });
     return success(res, order, 'Duyệt đơn thành công');
@@ -63,4 +66,15 @@ const reject = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getById, create, approve, reject };
+// PATCH /api/sales-orders/:id/complete (admin|employee)
+const complete = async (req, res, next) => {
+  try {
+    const order = await SalesOrder.updateStatus(req.params.id, {
+      status: 'exported'
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn bán' });
+    return success(res, order, 'Hoàn thành đơn và cập nhật xuất kho thành công');
+  } catch (err) { next(err); }
+};
+
+module.exports = { getAll, getById, create, approve, reject, complete };

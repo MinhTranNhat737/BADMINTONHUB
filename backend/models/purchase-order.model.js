@@ -2,6 +2,7 @@
 // Model: Purchase Orders (purchase_orders + po_items)
 // ═══════════════════════════════════════════════════════════════
 const { query, getClient } = require('../config/database');
+const { generateCode } = require('../utils/code-generator');
 
 const PurchaseOrder = {
   findAll: async ({ status, supplierId } = {}) => {
@@ -9,7 +10,7 @@ const PurchaseOrder = {
     const values = [];
     let idx = 1;
 
-    if (status)     { where.push(`po.status = $${idx++}`); values.push(status); }
+    if (status) { where.push(`po.status = $${idx++}`); values.push(status); }
     if (supplierId) { where.push(`po.supplier_id = $${idx++}`); values.push(supplierId); }
 
     const sql = `SELECT po.*, s.name AS supplier_name, w.name AS warehouse_name,
@@ -21,6 +22,13 @@ const PurchaseOrder = {
                  WHERE ${where.join(' AND ')}
                  ORDER BY po.created_at DESC`;
     const result = await query(sql, values);
+
+    // Gắn items cho mỗi PO
+    for (const po of result.rows) {
+      const items = await query('SELECT * FROM po_items WHERE po_id = $1', [po.id]);
+      po.po_items = items.rows;
+    }
+
     return result.rows;
   },
 
@@ -46,9 +54,11 @@ const PurchaseOrder = {
 
       const { supplier_id, warehouse_id, total_value, note, created_by, items } = data;
 
-      const sql = `INSERT INTO purchase_orders (supplier_id, warehouse_id, total_value, note, created_by)
-                   VALUES ($1, $2, $3, $4, $5) RETURNING *`;
-      const result = await client.query(sql, [supplier_id, warehouse_id, total_value, note, created_by]);
+      const po_code = await generateCode(client, 'PO', 'purchase_orders', 'po_code');
+
+      const sql = `INSERT INTO purchase_orders (supplier_id, warehouse_id, total_value, note, created_by, po_code)
+                   VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`;
+      const result = await client.query(sql, [supplier_id, warehouse_id, total_value, note, created_by, po_code]);
       const po = result.rows[0];
 
       for (const item of items) {

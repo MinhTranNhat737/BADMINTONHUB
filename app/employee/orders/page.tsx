@@ -24,12 +24,14 @@ import { useInventory } from "@/lib/inventory-context"
 interface OrderItem {
   productId: number
   name: string
+  sku: string
   price: number
   qty: number
 }
 
 interface Order {
   id: string
+  displayCode: string
   items: OrderItem[]
   customer: { name: string; phone: string; email: string; address: string }
   note: string
@@ -91,18 +93,11 @@ function OrderDetailDialog({ order, onApprove, onStartDelivery, onDeliver, onCan
   const { warehouses: warehouseList } = useInventory()
   const ALL_WAREHOUSES = warehouseList.map(w => w.name)
 
-  // Build productId → sku mapping from inventory data
-  const productIdToSkuMap: Record<number, string> = {}
-  if (inventoryData) {
-    for (const inv of inventoryData) {
-      if (inv.sku) productIdToSkuMap[parseInt(inv.sku)] = inv.sku
-    }
-  }
-
+  // Build orderSkus from order items (SKU is now directly available from backend)
   const orderSkus = order.items.map(item => ({
     productId: item.productId,
     name: item.name,
-    sku: productIdToSkuMap[item.productId] || String(item.productId),
+    sku: item.sku || String(item.productId),
     qtyNeeded: item.qty,
   })).filter(i => i.sku)
 
@@ -142,7 +137,7 @@ function OrderDetailDialog({ order, onApprove, onStartDelivery, onDeliver, onCan
     <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle className="font-serif text-xl flex items-center gap-2">
-          Đơn hàng {order.id}
+          Đơn hàng {order.displayCode}
           <StatusBadge status={order.status} />
         </DialogTitle>
       </DialogHeader>
@@ -445,9 +440,10 @@ export default function EmployeeOrdersPage() {
       if (res.orders) {
         const allOrders: Order[] = res.orders.map((o: any) => ({
           id: String(o.id),
-          items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
+          displayCode: o.orderCode || o.order_code || String(o.id).slice(0, 12),
+          items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", sku: i.sku || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
           customer: { name: o.customerName || "", phone: o.customerPhone || "", email: o.customerEmail || "", address: o.shippingAddress || "" },
-          note: o.note || "", subtotal: o.totalAmount || 0, shippingFee: 0, total: o.totalAmount || 0,
+          note: o.note || "", subtotal: o.amount || o.total || 0, shippingFee: o.shippingFee || 0, total: o.amount || o.total || 0,
           paymentMethod: o.paymentMethod || "", status: o.status || "pending", createdAt: o.createdAt || "",
           userId: o.userId || "", type: "online" as const, deliveryMethod: "delivery" as const,
           fulfillingWarehouse: o.fulfillingWarehouse || "",
@@ -515,7 +511,8 @@ export default function EmployeeOrdersPage() {
   const filteredOrders = orders.filter(o => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
-    return o.id.toLowerCase().includes(q) ||
+    return o.displayCode.toLowerCase().includes(q) ||
+      o.id.toLowerCase().includes(q) ||
       o.customer.name.toLowerCase().includes(q) ||
       o.customer.phone.includes(q)
   })
@@ -612,7 +609,7 @@ export default function EmployeeOrdersPage() {
                         {/* Order info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-bold text-primary">{order.id}</span>
+                            <span className="font-mono font-bold text-primary">{order.displayCode}</span>
                             <StatusBadge status={order.status} />
                             {order.deliveryMethod === "pickup" ? (
                               <Badge variant="outline" className="gap-1 text-xs bg-orange-50 text-orange-700 border-orange-200">

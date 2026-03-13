@@ -34,6 +34,20 @@ const User = {
     return result.rows[0] || null;
   },
 
+  // Tra cứu khách hàng theo số điện thoại (partial/exact)
+  findCustomersByPhone: async (phone, limit = 8) => {
+    const sql = `SELECT id, user_code, full_name, phone, email, role
+                 FROM users
+                 WHERE role IN ('user', 'guest')
+                   AND phone ILIKE $1
+                 ORDER BY
+                   CASE WHEN phone = $2 THEN 0 ELSE 1 END,
+                   created_at DESC
+                 LIMIT $3`;
+    const result = await query(sql, [`%${phone}%`, phone, limit]);
+    return result.rows;
+  },
+
   // Sinh mã user tự động: NV001, KH001, AD001
   generateUserCode: async (role) => {
     const prefixMap = { admin: 'AD', employee: 'NV', user: 'KH', guest: 'GS' };

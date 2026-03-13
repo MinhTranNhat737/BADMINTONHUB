@@ -14,10 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Separator } from "@/components/ui/separator"
 import { BookingStatusBadge } from "@/components/shared"
 import { RouteGuard } from "@/components/route-guard"
-import { Calendar, Clock, MapPin, QrCode, Star, ChevronDown, Settings, Heart, Gift, ShoppingBag, Award, User as UserIcon, Save, CheckCircle2, AlertCircle, Mail, Phone, MapPinned, Package, Truck, Receipt, Printer, Download, Eye, Copy, CalendarDays } from "lucide-react"
-import { useState, useEffect } from "react"
-import { formatVND } from "@/lib/utils"
-import { bookingApi, orderApi, type ApiBooking, type ApiOrder } from "@/lib/api"
+import { Calendar, Clock, MapPin, QrCode, Star, ChevronDown, ChevronLeft, ChevronRight, Settings, Heart, Gift, ShoppingBag, Award, User as UserIcon, Save, CheckCircle2, AlertCircle, Mail, Phone, MapPinned, Package, Truck, Receipt, Printer, Download, Eye, Copy, CalendarDays, Check, Lock } from "lucide-react"
+import { useState, useEffect, useMemo } from "react"
+import { formatVND, generateTimeSlots, getWeekDays, isSlotPast } from "@/lib/utils"
+import { bookingApi, orderApi, courtApi, type ApiBooking, type ApiOrder } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { AddressInput } from "@/components/address-input"
@@ -74,10 +74,559 @@ function AccountSidebar({ activePage, onPageChange }: { activePage: SidebarPage;
   )
 }
 
-function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: string; onCancel?: (id: string) => void }) {
+function BookingInvoiceDialog({ booking }: { booking: ApiBooking }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(booking.bookingCode || booking.id)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handlePrint = () => { window.print() }
+
+  const paymentLabelsBooking: Record<string, string> = {
+    cod: "Tiền mặt",
+    momo: "MoMo",
+    vnpay: "VNPay",
+    bank: "Chuyển khoản",
+    cash: "Tiền mặt",
+  }
+
+  const handleDownload = () => {
+    const dateObj = new Date(booking.bookingDate)
+    const lines = [
+      "════════════════════════════════════════",
+      "       HÓA ĐƠN ĐẶT SÂN - BADMINTONHUB",
+      "════════════════════════════════════════",
+      `Mã đặt sân: ${booking.bookingCode || booking.id}`,
+      `Ngày đặt: ${new Date(booking.createdAt).toLocaleString("vi-VN")}`,
+      `Trạng thái: ${booking.status === 'confirmed' ? 'Đã xác nhận' : booking.status === 'pending' ? 'Chờ xử lý' : booking.status === 'completed' ? 'Hoàn thành' : booking.status === 'cancelled' ? 'Đã huỷ' : booking.status}`,
+      "",
+      "Thông tin đặt sân:",
+      `  Sân: ${booking.courtName}`,
+      `  Chi nhánh: ${booking.branchName}`,
+      `  Ngày chơi: ${dateObj.toLocaleDateString("vi-VN")}`,
+      `  Giờ chơi: ${booking.timeStart} - ${booking.timeEnd}`,
+      `  Số slot: ${booking.slots || 1}`,
+      "",
+      "Thông tin khách hàng:",
+      `  Họ tên: ${booking.customerName}`,
+      `  SĐT: ${booking.customerPhone}`,
+      "",
+      "────────────────────────────────────────",
+      `Thanh toán: ${paymentLabelsBooking[booking.paymentMethod || ''] || booking.paymentMethod || 'N/A'}`,
+      "════════════════════════════════════════",
+      `TỔNG CỘNG: ${formatVND(booking.amount)}`,
+      "════════════════════════════════════════",
+      "",
+      booking.note ? `Ghi chú: ${booking.note}` : "",
+      "",
+      "Cảm ơn bạn đã đặt sân tại BadmintonHub!",
+    ].filter(Boolean).join("\n")
+
+    const blob = new Blob([lines], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `hoa-don-${booking.bookingCode || booking.id}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const dateObj = new Date(booking.bookingDate)
+  const startH = parseInt(booking.timeStart.split(':')[0])
+  const endH = parseInt(booking.timeEnd.split(':')[0])
+  const slotCount = endH - startH
+
+  return (
+    <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="font-serif text-lg flex items-center gap-2">
+          <Receipt className="h-5 w-5 text-primary" /> Hóa đơn đặt sân
+        </DialogTitle>
+      </DialogHeader>
+
+      <Card className="border-2 border-dashed border-primary/30 mt-2">
+        <CardContent className="p-5 space-y-4">
+          {/* Header */}
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="font-bold text-primary text-lg">BADMINTONHUB</p>
+              <p className="text-muted-foreground text-xs">Hệ thống sân cầu lông chuyên nghiệp</p>
+            </div>
+            <div className="text-right">
+              <div className="flex items-center gap-2 justify-end">
+                <span className="font-mono font-bold text-primary">{booking.bookingCode || booking.id}</span>
+                <button onClick={handleCopy} className="p-1 rounded hover:bg-muted transition-colors">
+                  {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {new Date(booking.createdAt).toLocaleString("vi-VN")}
+              </p>
+              <div className="mt-1">
+                <BookingStatusBadge status={booking.status} />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Booking details */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Chi tiết đặt sân</p>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th className="text-left py-2 px-3 font-semibold text-xs">Mục</th>
+                    <th className="text-right py-2 px-3 font-semibold text-xs">Chi tiết</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t">
+                    <td className="py-2 px-3 text-muted-foreground">Sân</td>
+                    <td className="py-2 px-3 text-right font-semibold">{booking.courtName}</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-2 px-3 text-muted-foreground">Chi nhánh</td>
+                    <td className="py-2 px-3 text-right">{booking.branchName}</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-2 px-3 text-muted-foreground">Ngày chơi</td>
+                    <td className="py-2 px-3 text-right font-semibold">{dateObj.toLocaleDateString("vi-VN", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-2 px-3 text-muted-foreground">Giờ chơi</td>
+                    <td className="py-2 px-3 text-right font-semibold">{booking.timeStart} - {booking.timeEnd} ({slotCount} giờ)</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="py-2 px-3 text-muted-foreground">Số slot</td>
+                    <td className="py-2 px-3 text-right">{booking.slots || slotCount}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Customer info */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Thông tin khách hàng</p>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-muted-foreground text-xs">Họ tên</p>
+                <p className="font-semibold">{booking.customerName}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">SĐT</p>
+                <p className="font-semibold">{booking.customerPhone}</p>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Total */}
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Thanh toán</span>
+              <span>{paymentLabelsBooking[booking.paymentMethod || ''] || booking.paymentMethod || 'N/A'}</span>
+            </div>
+            {booking.note && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Ghi chú</span>
+                <span className="text-right max-w-[60%]">{booking.note}</span>
+              </div>
+            )}
+            <Separator />
+            <div className="flex justify-between items-center pt-1">
+              <span className="font-bold text-base">Tổng cộng</span>
+              <span className="font-bold text-lg text-primary">{formatVND(booking.amount)}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Print & Download */}
+      <div className="flex gap-2 mt-2 print:hidden">
+        <Button variant="outline" className="flex-1 gap-2" onClick={handlePrint}>
+          <Printer className="h-4 w-4" /> In hóa đơn
+        </Button>
+        <Button variant="outline" className="flex-1 gap-2" onClick={handleDownload}>
+          <Download className="h-4 w-4" /> Tải hóa đơn
+        </Button>
+      </div>
+    </DialogContent>
+  )
+}
+
+function RescheduleDialog({ booking, onRescheduled }: { booking: ApiBooking; onRescheduled: (updated: ApiBooking) => void }) {
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [availability, setAvailability] = useState<Record<string, Record<string, 'available' | 'booked' | 'hold'>>>({})
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [selectedDay, setSelectedDay] = useState("")   // e.g. "15/3"
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null) // Date object of selected day
+  const [selectedStartTime, setSelectedStartTime] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const [successMsg, setSuccessMsg] = useState("")
+
+  // Giờ hoạt động 06:00 - 22:00
+  const timeSlots = generateTimeSlots()
+
+  // Tính số slot ban đầu
+  const originalStartH = parseInt(booking.timeStart.split(':')[0])
+  const originalEndH = parseInt(booking.timeEnd.split(':')[0])
+  const originalSlotCount = originalEndH - originalStartH
+
+  // Build week starting from tomorrow
+  const startDate = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1 + weekOffset * 7) // Start from tomorrow
+    return d
+  }, [weekOffset])
+
+  const weekDays = useMemo(() => getWeekDays(startDate), [startDate])
+  const weekKey = weekDays.map(d => d.label).join(',')
+
+  // Fetch slots for all 7 days of the week
+  useEffect(() => {
+    setLoadingSlots(true)
+    const fetchSlots = async () => {
+      const map: Record<string, Record<string, 'available' | 'booked' | 'hold'>> = {}
+      weekDays.forEach(d => {
+        const dayMap: Record<string, 'available' | 'booked' | 'hold'> = {}
+        timeSlots.forEach(t => { dayMap[t] = 'available' })
+        map[d.label] = dayMap
+      })
+      try {
+        const results = await Promise.all(
+          weekDays.map(d => {
+            const dateStr = `${d.date.getFullYear()}-${String(d.date.getMonth() + 1).padStart(2, '0')}-${String(d.date.getDate()).padStart(2, '0')}`
+            return courtApi.getSlots(booking.courtId, dateStr)
+          })
+        )
+        results.forEach((slots, idx) => {
+          const dayLabel = weekDays[idx].label
+          slots.forEach((s: { time: string; status: 'booked' | 'hold' }) => {
+            if (map[dayLabel] && map[dayLabel][s.time]) {
+              map[dayLabel][s.time] = s.status
+            }
+          })
+        })
+      } catch { /* ignore */ }
+      setAvailability(map)
+      setLoadingSlots(false)
+    }
+    fetchSlots()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking.courtId, weekKey])
+
+  // Computed: selected end time & slot count based on selected start
+  const newStartH = selectedStartTime ? parseInt(selectedStartTime.split(':')[0]) : 0
+  const suggestedEndH = Math.min(newStartH + originalSlotCount, 22)
+  const selectedEndTime = selectedStartTime ? suggestedEndH.toString().padStart(2, "0") + ":00" : ""
+  const newSlotCount = suggestedEndH - newStartH
+  const pricePerSlot = originalSlotCount > 0 ? booking.amount / originalSlotCount : 0
+  const newAmount = newSlotCount * pricePerSlot
+
+  // Kiểm tra conflict
+  const hasConflict = (() => {
+    if (!selectedDay || !selectedStartTime || newSlotCount <= 0) return false
+    const dayAvail = availability[selectedDay]
+    if (!dayAvail) return false
+    for (let h = newStartH; h < suggestedEndH; h++) {
+      const t = h.toString().padStart(2, "0") + ":00"
+      if (dayAvail[t] === 'booked' || dayAvail[t] === 'hold') return true
+    }
+    return false
+  })()
+
+  const handleSlotClick = (dayLabel: string, dayDate: Date, time: string) => {
+    setError("")
+    setSuccessMsg("")
+    setSelectedDay(dayLabel)
+    setSelectedDate(dayDate)
+    setSelectedStartTime(time)
+  }
+
+  // Allow manual end time override
+  const [customEndH, setCustomEndH] = useState<number | null>(null)
+
+  // Reset custom end when start changes
+  useEffect(() => {
+    setCustomEndH(null)
+  }, [selectedStartTime, selectedDay])
+
+  const effectiveEndH = customEndH ?? suggestedEndH
+  const effectiveEndTime = effectiveEndH.toString().padStart(2, "0") + ":00"
+  const effectiveSlotCount = effectiveEndH - newStartH
+  const effectiveAmount = effectiveSlotCount * pricePerSlot
+
+  // Recompute conflict with effective values
+  const effectiveConflict = (() => {
+    if (!selectedDay || !selectedStartTime || effectiveSlotCount <= 0) return false
+    const dayAvail = availability[selectedDay]
+    if (!dayAvail) return false
+    for (let h = newStartH; h < effectiveEndH; h++) {
+      const t = h.toString().padStart(2, "0") + ":00"
+      if (dayAvail[t] === 'booked' || dayAvail[t] === 'hold') return true
+    }
+    return false
+  })()
+
+  const handleSubmit = async () => {
+    if (!selectedDay || !selectedDate || !selectedStartTime) {
+      setError("Vui lòng chọn ngày và giờ mới trên lịch")
+      return
+    }
+    if (effectiveSlotCount <= 0) {
+      setError("Giờ kết thúc phải sau giờ bắt đầu")
+      return
+    }
+    if (effectiveConflict) {
+      setError("Khung giờ đã chọn bị trùng với booking khác")
+      return
+    }
+
+    const bookingDate = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
+
+    setSubmitting(true)
+    setError("")
+    const result = await bookingApi.reschedule(booking.id, {
+      booking_date: bookingDate,
+      time_start: selectedStartTime,
+      time_end: effectiveEndTime,
+      amount: effectiveAmount,
+    })
+    setSubmitting(false)
+
+    if (result.success && result.booking) {
+      setSuccessMsg("Đổi lịch thành công!")
+      onRescheduled(result.booking)
+    } else {
+      setError(result.error || "Không thể đổi lịch")
+    }
+  }
+
+  return (
+    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="font-serif text-lg flex items-center gap-2">
+          <CalendarDays className="h-5 w-5 text-primary" /> Đổi lịch đặt sân
+        </DialogTitle>
+      </DialogHeader>
+
+      {/* Current booking info */}
+      <Card className="bg-muted/50">
+        <CardContent className="p-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Lịch hiện tại</p>
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            <span className="font-semibold">{booking.courtName}</span>
+            <span className="text-muted-foreground">•</span>
+            <span>{new Date(booking.bookingDate).toLocaleDateString("vi-VN")}</span>
+            <span className="text-muted-foreground">•</span>
+            <span>{booking.timeStart} - {booking.timeEnd} ({originalSlotCount} slot)</span>
+          </div>
+          <p className="text-sm font-semibold text-primary mt-1">{formatVND(booking.amount)}</p>
+        </CardContent>
+      </Card>
+
+      {/* Weekly calendar grid */}
+      <Card className="mt-2">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-serif text-lg">Lịch trống</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekOffset(Math.max(0, weekOffset - 1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium whitespace-nowrap">{weekDays[0].label} - {weekDays[6].label}</span>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setWeekOffset(weekOffset + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex gap-4 mt-2 flex-wrap">
+            <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-available" /> Trống</span>
+            <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-booked" /> Đã đặt</span>
+            <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-hold" /> Giữ chỗ</span>
+            <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-court-past" /> Đã qua</span>
+            <span className="flex items-center gap-1 text-xs"><span className="h-3 w-3 rounded bg-primary" /> Đã chọn</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingSlots ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="ml-2 text-sm text-muted-foreground">Đang tải lịch...</span>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="min-w-[650px]">
+                {/* Day headers */}
+                <div className="grid grid-cols-[60px_repeat(7,1fr)] gap-1.5 mb-1">
+                  <div />
+                  {weekDays.map(d => (
+                    <div key={d.label} className="text-center text-xs font-medium text-muted-foreground py-1">
+                      <div>{d.dayName}</div>
+                      <div className="font-semibold text-foreground">{d.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Time grid */}
+                {timeSlots.map(time => (
+                  <div key={time} className="grid grid-cols-[60px_repeat(7,1fr)] gap-1.5 mb-1">
+                    <div className="text-xs text-muted-foreground flex items-center justify-end pr-2">{time}</div>
+                    {weekDays.map(d => {
+                      const status = availability[d.label]?.[time] || 'available'
+                      const past = isSlotPast(d.date, time)
+                      const isDisabled = status !== 'available' || past
+
+                      // Check if this slot is in the selected range
+                      const h = parseInt(time.split(':')[0])
+                      const isInSelectedRange = selectedDay === d.label && selectedStartTime && h >= newStartH && h < effectiveEndH
+                      const isSelectedStart = selectedDay === d.label && time === selectedStartTime
+
+                      if (past && status === 'available') {
+                        return (
+                          <div
+                            key={`${d.label}-${time}`}
+                            className="h-8 rounded flex items-center justify-center text-xs font-medium bg-court-past text-slate-400 cursor-not-allowed"
+                          >
+                            <Lock className="h-3 w-3" />
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <button
+                          key={`${d.label}-${time}`}
+                          disabled={isDisabled}
+                          onClick={() => handleSlotClick(d.label, d.date, time)}
+                          className={cn(
+                            "h-9 rounded text-xs font-medium transition-all",
+                            isSelectedStart
+                              ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1"
+                              : isInSelectedRange
+                                ? "bg-primary/70 text-primary-foreground"
+                                : past
+                                  ? "bg-court-past text-slate-400 cursor-not-allowed"
+                                  : status === 'available'
+                                    ? "bg-court-available hover:bg-green-200 text-green-700 cursor-pointer"
+                                    : status === 'booked'
+                                      ? "bg-court-booked text-red-400 cursor-not-allowed"
+                                      : "bg-court-hold text-amber-400 cursor-not-allowed"
+                          )}
+                        >
+                          {isSelectedStart && <Check className="h-3 w-3 mx-auto" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Selected slot info & adjustment */}
+      {selectedStartTime && selectedDay && (
+        <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Lịch mới</p>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Ngày chơi</span>
+            <span className="font-semibold">{selectedDay}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Giờ bắt đầu</span>
+            <span className="font-semibold">{selectedStartTime}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Số giờ chơi</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const n = Math.max(newStartH + 1, effectiveEndH - 1)
+                  setCustomEndH(n)
+                }}
+                className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted transition-colors text-sm font-bold"
+              >−</button>
+              <span className="font-bold text-lg min-w-[2ch] text-center">{effectiveSlotCount > 0 ? effectiveSlotCount : '-'}</span>
+              <button
+                onClick={() => {
+                  const n = Math.min(effectiveEndH + 1, 22)
+                  setCustomEndH(n)
+                }}
+                className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted transition-colors text-sm font-bold"
+              >+</button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Giờ kết thúc</span>
+            <span className="font-semibold">{effectiveEndTime}</span>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">Thành tiền</span>
+            <span className="font-bold text-primary text-lg">{formatVND(effectiveAmount)}</span>
+          </div>
+          {effectiveSlotCount !== originalSlotCount && (
+            <p className="text-xs text-amber-600 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              Số slot khác ban đầu ({originalSlotCount} → {effectiveSlotCount}), giá sẽ thay đổi tương ứng
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Error / Success */}
+      {error && (
+        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-2 rounded-lg">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
+      {successMsg && (
+        <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 p-2 rounded-lg">
+          <CheckCircle2 className="h-4 w-4 shrink-0" /> {successMsg}
+        </div>
+      )}
+
+      {/* Submit */}
+      {!successMsg && (
+        <Button
+          onClick={handleSubmit}
+          disabled={submitting || !selectedDay || !selectedStartTime || effectiveConflict}
+          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold gap-2"
+        >
+          {submitting ? (
+            <>
+              <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Đang xử lý...
+            </>
+          ) : (
+            <>
+              <CalendarDays className="h-4 w-4" />
+              Xác nhận đổi lịch
+            </>
+          )}
+        </Button>
+      )}
+    </DialogContent>
+  )
+}
+
+function BookingCard({ booking: initialBooking, tab, onCancel, onUpdate }: { booking: ApiBooking; tab: string; onCancel?: (id: string) => void; onUpdate?: (updated: ApiBooking) => void }) {
   const [expanded, setExpanded] = useState(false)
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
+  const [booking, setBooking] = useState(initialBooking)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
 
   const dateObj = new Date(booking.bookingDate)
   const dayNum = dateObj.getDate()
@@ -85,20 +634,27 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
   const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
   const dayName = dayNames[dateObj.getDay()]
 
+  const handleRescheduled = (updated: ApiBooking) => {
+    setBooking(updated)
+    onUpdate?.(updated)
+    // Close after a short delay to show success message
+    setTimeout(() => setRescheduleOpen(false), 1500)
+  }
+
   return (
     <Card className="hover:-translate-y-0.5 transition-all duration-200 hover:shadow-md">
-      <CardContent className="p-4">
+      <CardContent className="p-5">
         <div className="flex gap-4">
           {/* Date Block */}
-          <div className="flex flex-col items-center justify-center rounded-lg bg-primary px-3 py-2 text-primary-foreground shrink-0 min-w-[60px]">
+          <div className="flex flex-col items-center justify-center rounded-xl bg-primary px-4 py-3 text-primary-foreground shrink-0 min-w-[70px]">
             <span className="text-xs font-medium">{dayName}</span>
-            <span className="font-serif text-2xl font-extrabold leading-none">{dayNum}</span>
+            <span className="font-serif text-3xl font-extrabold leading-none">{dayNum}</span>
             <span className="text-xs">{month}</span>
           </div>
 
           {/* Center Details */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-foreground">{booking.courtName}</h3>
+            <h3 className="font-semibold text-foreground text-lg">{booking.courtName}</h3>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {booking.timeStart} - {booking.timeEnd}</span>
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {booking.branchName}</span>
@@ -115,8 +671,23 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
             <div className="flex gap-1.5">
               {(booking.status === 'confirmed' || booking.status === 'pending') && (
                 <>
-                  <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
-                  <Button variant="outline" size="sm" className="text-xs h-7">Đổi lịch</Button>
+                  {/* Chi tiết */}
+                  <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
+                    </DialogTrigger>
+                    <BookingInvoiceDialog booking={booking} />
+                  </Dialog>
+
+                  {/* Đổi lịch */}
+                  <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-xs h-7">Đổi lịch</Button>
+                    </DialogTrigger>
+                    <RescheduleDialog booking={booking} onRescheduled={handleRescheduled} />
+                  </Dialog>
+
+                  {/* Huỷ */}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="outline" size="sm" className="text-xs h-7 text-red-600 hover:text-red-700">Huỷ</Button>
@@ -138,7 +709,12 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
               )}
               {booking.status === 'completed' && (
                 <>
-                  <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
+                  <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
+                    </DialogTrigger>
+                    <BookingInvoiceDialog booking={booking} />
+                  </Dialog>
                   <Dialog>
                     <DialogTrigger asChild>
                       <Button size="sm" className="text-xs h-7 bg-primary text-primary-foreground hover:bg-primary/90">Đánh giá</Button>
@@ -177,7 +753,12 @@ function BookingCard({ booking, tab, onCancel }: { booking: ApiBooking; tab: str
                 </>
               )}
               {booking.status === 'cancelled' && (
-                <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
+                <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-xs h-7">Chi tiết</Button>
+                  </DialogTrigger>
+                  <BookingInvoiceDialog booking={booking} />
+                </Dialog>
               )}
             </div>
           </div>
@@ -524,7 +1105,7 @@ function OrderInvoiceDialog({ order }: { order: ApiOrder }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(order.id)
+    navigator.clipboard.writeText(order.orderCode || order.id)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -536,7 +1117,7 @@ function OrderInvoiceDialog({ order }: { order: ApiOrder }) {
       "====================================",
       "       HÓA ĐƠN - BADMINTONHUB",
       "====================================",
-      `Mã đơn hàng: ${order.id}`,
+      `Mã đơn hàng: ${order.orderCode || order.id}`,
       `Ngày đặt: ${new Date(order.createdAt).toLocaleString("vi-VN")}`,
       `Trạng thái: ${orderStatusConfig[order.status]?.label || order.status}`,
       "",
@@ -567,7 +1148,7 @@ function OrderInvoiceDialog({ order }: { order: ApiOrder }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `hoa-don-${order.id}.txt`
+    a.download = `hoa-don-${order.orderCode || order.id}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -590,7 +1171,7 @@ function OrderInvoiceDialog({ order }: { order: ApiOrder }) {
             </div>
             <div className="text-right">
               <div className="flex items-center gap-2 justify-end">
-                <span className="font-mono font-bold text-primary">{order.id}</span>
+                <span className="font-mono font-bold text-primary">{order.orderCode || order.id}</span>
                 <button onClick={handleCopy} className="p-1 rounded hover:bg-muted transition-colors">
                   {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
                 </button>
@@ -730,7 +1311,7 @@ function OrderHistoryView() {
                   {/* Order info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono font-bold text-primary">{order.id}</span>
+                      <span className="font-mono font-bold text-primary">{order.orderCode || order.id}</span>
                       <OrderStatusBadge status={order.status} />
                       <Badge variant="outline" className="text-xs">
                         {paymentLabels[order.paymentMethod || ''] || order.paymentMethod || 'N/A'}
@@ -794,6 +1375,10 @@ export default function MyBookingsPage() {
     }
   }
 
+  const handleBookingUpdate = (updated: ApiBooking) => {
+    setAllBookings(prev => prev.map(b => b.id === updated.id ? updated : b))
+  }
+
   const upcoming = allBookings.filter(b => ['confirmed', 'pending', 'playing'].includes(b.status))
   const completed = allBookings.filter(b => b.status === 'completed')
   const cancelled = allBookings.filter(b => b.status === 'cancelled')
@@ -837,13 +1422,13 @@ export default function MyBookingsPage() {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <main className="flex-1">
-        <div className="mx-auto max-w-7xl px-4 py-6">
-          <div className="flex gap-6">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex gap-8">
             <AccountSidebar activePage={activePage} onPageChange={setActivePage} />
             <div className="flex-1 min-w-0">
               {activePage === "bookings" ? (
                 <>
-                  <h1 className="font-serif text-2xl font-extrabold text-foreground lg:text-3xl">Lịch đặt của tôi</h1>
+                  <h1 className="font-serif text-2xl font-extrabold text-foreground lg:text-4xl">Lịch đặt của tôi</h1>
 
                   <Tabs defaultValue="upcoming" className="mt-6">
                     <TabsList>
@@ -859,7 +1444,7 @@ export default function MyBookingsPage() {
                           <p className="font-semibold text-foreground">Chưa có lịch đặt sắp tới</p>
                           <p className="text-sm mt-1">Hãy <a href="/courts" className="text-primary underline">đặt sân</a> để bắt đầu chơi!</p>
                         </CardContent></Card>
-                      ) : upcoming.map(b => <BookingCard key={b.id} booking={b} tab="upcoming" onCancel={handleCancel} />)}
+                      ) : upcoming.map(b => <BookingCard key={b.id} booking={b} tab="upcoming" onCancel={handleCancel} onUpdate={handleBookingUpdate} />)}
                     </TabsContent>
 
                     <TabsContent value="completed" className="mt-4 flex flex-col gap-4">

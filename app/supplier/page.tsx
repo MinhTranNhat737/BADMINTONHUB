@@ -125,7 +125,7 @@ export default function SupplierPortal() {
         const res = await purchaseOrderApi.getAll()
         if (res.success && res.data) {
           setSupplierPOs(res.data.map((po: any) => ({
-            id: po.orderCode || po.order_code || `PO-${po.id}`,
+            id: po.po_code || po.orderCode || po.order_code || `PO-${po.id}`,
             status: po.status || "pending",
             createdDate: (po.createdAt || po.created_at || "").split("T")[0],
             totalValue: po.totalAmount || po.total_amount || 0,

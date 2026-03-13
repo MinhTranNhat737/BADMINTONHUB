@@ -16,7 +16,7 @@ import { useAuth } from "@/lib/auth-context"
 import {
   Search, CheckCircle2, XCircle, Clock, Eye, FileText,
   ArrowUpFromLine, Receipt, Package, AlertTriangle, Printer,
-  DollarSign, ShoppingCart
+  DollarSign, ShoppingCart, CreditCard, QrCode, Smartphone, Building2, Banknote
 } from "lucide-react"
 
 /* ─── Types ─── */
@@ -29,6 +29,7 @@ interface CartItem {
 
 interface SalesOrder {
   id: string
+  displayCode?: string
   date: string
   time: string
   customer: string
@@ -89,6 +90,42 @@ export default function ApprovalPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [rejectReason, setRejectReason] = useState("")
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null)
+  const [paymentDialogOrder, setPaymentDialogOrder] = useState<SalesOrder | null>(null)
+  const [approvalPaymentMethod, setApprovalPaymentMethod] = useState<"cash" | "vietqr" | "momo" | "bank">("cash")
+  const [approvalPaymentNote, setApprovalPaymentNote] = useState("")
+  const [approvingOrderId, setApprovingOrderId] = useState<string | null>(null)
+  const [completingOrderId, setCompletingOrderId] = useState<string | null>(null)
+
+  const paymentLabelToKey = (label?: string): "cash" | "vietqr" | "momo" | "bank" => {
+    const normalized = String(label || "").toLowerCase()
+    if (normalized.includes("qr") || normalized.includes("vietqr")) return "vietqr"
+    if (normalized.includes("momo")) return "momo"
+    if (normalized.includes("chuyển") || normalized.includes("chuyen") || normalized.includes("bank")) return "bank"
+    return "cash"
+  }
+
+  const paymentKeyToLabel = (key: "cash" | "vietqr" | "momo" | "bank") => {
+    if (key === "cash") return "Tiền mặt"
+    if (key === "vietqr") return "QR Chuyển khoản"
+    if (key === "momo") return "MoMo"
+    return "Chuyển khoản"
+  }
+
+  const paymentMethodOptions = [
+    { value: "cash" as const, label: "Tiền mặt", icon: <Banknote className="h-4 w-4" /> },
+    { value: "vietqr" as const, label: "QR Chuyển khoản", icon: <QrCode className="h-4 w-4" /> },
+    { value: "momo" as const, label: "MoMo", icon: <Smartphone className="h-4 w-4" /> },
+    { value: "bank" as const, label: "Chuyển khoản", icon: <Building2 className="h-4 w-4" /> },
+  ]
+
+  const vietqrUrl = useMemo(() => {
+    if (!paymentDialogOrder) return ""
+    const amount = Math.max(0, Math.round(paymentDialogOrder.finalTotal || 0))
+    const orderCode = paymentDialogOrder.displayCode || paymentDialogOrder.id
+    const addInfo = encodeURIComponent(`Thanh toan ${orderCode}`)
+    const accountName = encodeURIComponent("BADMINTONHUB")
+    return `https://img.vietqr.io/image/MB-0363132364-compact2.png?amount=${amount}&addInfo=${addInfo}&accountName=${accountName}`
+  }, [paymentDialogOrder])
 
   // Load from API
   const loadData = async () => {
@@ -96,23 +133,23 @@ export default function ApprovalPage() {
       const res = await salesOrderApi.getAll()
       if ((res as any).success && (res as any).data) {
         setOrders((res as any).data.map((o: any) => ({
-          id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
+          id: String(o.id), displayCode: o.sales_code || String(o.id).slice(0, 10), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
           time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
           customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
           items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-          total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
+          total: o.total || 0, discount: o.discount || 0, finalTotal: o.final_total || o.total || 0,
           paymentMethod: o.payment_method || "", note: o.note || "",
           status: o.status || "pending", createdBy: o.created_by || "",
           approvedAt: o.approved_at, approvedBy: o.approved_by,
           rejectedAt: o.rejected_at, rejectedBy: o.rejected_by, rejectReason: o.reject_reason,
         })))
       }
-    } catch {}
+    } catch { }
     // Export slips still from localStorage (no backend endpoint)
     try {
       const storedSlips = localStorage.getItem("exportSlips")
       if (storedSlips) setExportSlips(JSON.parse(storedSlips))
-    } catch {}
+    } catch { }
   }
   useEffect(() => { loadData() }, [])
 
@@ -132,7 +169,7 @@ export default function ApprovalPage() {
       if (statusFilter !== "all" && o.status !== statusFilter) return false
       if (search) {
         const q = search.toLowerCase()
-        return o.id.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q)
+        return (o as any).displayCode?.toLowerCase().includes(q) || o.id.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q)
       }
       return true
     })
@@ -146,43 +183,62 @@ export default function ApprovalPage() {
     .filter(o => o.status === "approved" || o.status === "exported")
     .reduce((s, o) => s + o.finalTotal, 0)
 
-  // Approve order → generate export slip
-  const handleApprove = async (order: SalesOrder) => {
-    try {
-      await salesOrderApi.approve(order.id)
-    } catch {}
-    const now = new Date()
-    const slipId = `PXK-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(exportSlips.length + 1).padStart(3, "0")}`
-
-    const slip: ExportSlip = {
-      id: slipId,
-      orderId: order.id,
+  const appendWarehouseTransactions = (slip: ExportSlip, now: Date) => {
+    const existingTxns = JSON.parse(localStorage.getItem("warehouseTransactions") || "[]")
+    const newTxns = slip.items.map((item, i) => ({
+      id: `${slip.id}-${i}`,
+      type: "export",
+      source: "sales",
+      slipId: slip.id,
+      orderId: slip.orderId,
       date: now.toISOString().split("T")[0],
-      items: order.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
-      total: order.finalTotal,
-      customer: order.customer,
-      note: `Xuất kho theo đơn ${order.id}`,
-      status: "pending",
-      createdBy: user?.fullName || "Nhân viên",
+      productName: item.name,
+      qty: item.qty,
+      price: item.price,
+      note: slip.note,
+      processedBy: user?.fullName,
+    }))
+    localStorage.setItem("warehouseTransactions", JSON.stringify([...newTxns, ...existingTxns]))
+  }
+
+  // Approve order in Visa/payment modal (no export slip yet)
+  const handleApprove = async (order: SalesOrder, paymentMethod: "cash" | "vietqr" | "momo" | "bank", paymentNote: string) => {
+    setApprovingOrderId(order.id)
+    const now = new Date()
+    const paymentLabel = paymentKeyToLabel(paymentMethod)
+
+    try {
+      await salesOrderApi.approve(order.id, {
+        payment_method: paymentLabel,
+        note: paymentNote?.trim() || undefined,
+      })
+    } catch {
+      setApprovingOrderId(null)
+      return
     }
 
     const updatedOrders = orders.map(o =>
       o.id === order.id
-        ? { ...o, status: "approved" as const, approvedAt: now.toISOString(), approvedBy: user?.fullName, exportSlipId: slipId }
+        ? {
+            ...o,
+            status: "approved" as const,
+            paymentMethod: paymentLabel,
+            note: paymentNote,
+            approvedAt: now.toISOString(),
+            approvedBy: user?.fullName,
+          }
         : o
     )
-
-    const updatedSlips = [slip, ...exportSlips]
-
     saveOrders(updatedOrders)
-    saveSlips(updatedSlips)
+    setPaymentDialogOrder(null)
+    setApprovingOrderId(null)
   }
 
   // Reject order
   const handleReject = async (order: SalesOrder, reason: string) => {
     try {
       await salesOrderApi.reject(order.id, reason)
-    } catch {}
+    } catch { }
     const now = new Date()
     const updatedOrders = orders.map(o =>
       o.id === order.id
@@ -191,6 +247,51 @@ export default function ApprovalPage() {
     )
     saveOrders(updatedOrders)
     setRejectReason("")
+  }
+
+  // Complete approved order -> create export slip and mark exported
+  const handleCompleteOrder = async (order: SalesOrder) => {
+    setCompletingOrderId(order.id)
+    try {
+      await salesOrderApi.complete(order.id)
+    } catch {
+      setCompletingOrderId(null)
+      return
+    }
+
+    const now = new Date()
+    const existingSlip = exportSlips.find(s => s.orderId === order.id || s.id === order.exportSlipId)
+
+    if (existingSlip) {
+      handleCompleteSlip(existingSlip)
+      setCompletingOrderId(null)
+      return
+    }
+
+    const slipId = `PXK-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(exportSlips.length + 1).padStart(3, "0")}`
+    const newSlip: ExportSlip = {
+      id: slipId,
+      orderId: order.id,
+      date: now.toISOString().split("T")[0],
+      items: order.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+      total: order.finalTotal,
+      customer: order.customer,
+      note: `Xuất kho theo đơn ${order.displayCode || order.id}`,
+      status: "completed",
+      createdBy: user?.fullName || "Nhân viên",
+      completedAt: now.toISOString(),
+      completedBy: user?.fullName,
+    }
+
+    saveSlips([newSlip, ...exportSlips])
+    const updatedOrders = orders.map(o =>
+      o.id === order.id
+        ? { ...o, status: "exported" as const, exportSlipId: slipId }
+        : o
+    )
+    saveOrders(updatedOrders)
+    appendWarehouseTransactions(newSlip, now)
+    setCompletingOrderId(null)
   }
 
   // Complete export slip → update order status to "exported"
@@ -207,27 +308,11 @@ export default function ApprovalPage() {
     // Update linked order
     const updatedOrders = orders.map(o =>
       o.id === slip.orderId
-        ? { ...o, status: "exported" as const }
+        ? { ...o, status: "exported" as const, exportSlipId: o.exportSlipId || slip.id }
         : o
     )
     saveOrders(updatedOrders)
-
-    // Save warehouse transaction to localStorage for inventory page
-    const existingTxns = JSON.parse(localStorage.getItem("warehouseTransactions") || "[]")
-    const newTxns = slip.items.map((item, i) => ({
-      id: `${slip.id}-${i}`,
-      type: "export",
-      source: "sales",
-      slipId: slip.id,
-      orderId: slip.orderId,
-      date: now.toISOString().split("T")[0],
-      productName: item.name,
-      qty: item.qty,
-      price: item.price,
-      note: slip.note,
-      processedBy: user?.fullName,
-    }))
-    localStorage.setItem("warehouseTransactions", JSON.stringify([...newTxns, ...existingTxns]))
+    appendWarehouseTransactions(slip, now)
   }
 
   const pendingSlips = exportSlips.filter(s => s.status === "pending")
@@ -355,7 +440,7 @@ export default function ApprovalPage() {
                         "hover:bg-muted/50",
                         order.status === "pending" && "bg-amber-50/30"
                       )}>
-                        <TableCell className="font-mono text-xs text-blue-600 font-semibold">{order.id}</TableCell>
+                        <TableCell className="font-mono text-xs text-blue-600 font-semibold">{(order as any).displayCode || order.id}</TableCell>
                         <TableCell className="text-sm">{order.date} {order.time}</TableCell>
                         <TableCell>
                           <p className="text-sm font-medium">{order.customer}</p>
@@ -382,7 +467,7 @@ export default function ApprovalPage() {
                               <DialogContent className="max-w-lg">
                                 <DialogHeader>
                                   <DialogTitle className="font-serif flex items-center gap-2">
-                                    Chi tiết đơn {order.id} <StatusBadge status={order.status} />
+                                    Chi tiết đơn {(order as any).displayCode || order.id} <StatusBadge status={order.status} />
                                   </DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-4 mt-2">
@@ -458,45 +543,21 @@ export default function ApprovalPage() {
                               </DialogContent>
                             </Dialog>
 
-                            {/* Approve button */}
+                            {/* Pending actions */}
                             {order.status === "pending" && (
                               <>
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50">
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle className="font-serif">Duyệt đơn hàng {order.id}</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="space-y-3 mt-2">
-                                      <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                        <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-                                        <div className="text-sm">
-                                          <p className="font-medium text-blue-800">Xác nhận duyệt đơn hàng</p>
-                                          <p className="text-xs text-blue-700 mt-1">Sau khi duyệt, hệ thống sẽ tự động tạo <strong>Phiếu xuất kho</strong> cho đơn hàng này.</p>
-                                        </div>
-                                      </div>
-                                      <div className="text-sm space-y-1">
-                                        <p>Khách hàng: <strong>{order.customer}</strong></p>
-                                        <p>Số SP: <strong>{order.items.reduce((s, i) => s + i.qty, 0)}</strong></p>
-                                        <p>Tổng tiền: <strong className="text-primary">{formatVND(order.finalTotal)}</strong></p>
-                                      </div>
-                                    </div>
-                                    <DialogFooter>
-                                      <DialogClose asChild>
-                                        <Button variant="outline">Huỷ</Button>
-                                      </DialogClose>
-                                      <DialogClose asChild>
-                                        <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleApprove(order)}>
-                                          <CheckCircle2 className="h-4 w-4 mr-1" /> Duyệt & Tạo phiếu XK
-                                        </Button>
-                                      </DialogClose>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                                  onClick={() => {
+                                    setPaymentDialogOrder(order)
+                                    setApprovalPaymentMethod(paymentLabelToKey(order.paymentMethod))
+                                    setApprovalPaymentNote(order.note || "")
+                                  }}
+                                >
+                                  <CreditCard className="h-3.5 w-3.5 mr-1" /> Visa
+                                </Button>
 
                                 {/* Reject button */}
                                 <Dialog>
@@ -507,7 +568,7 @@ export default function ApprovalPage() {
                                   </DialogTrigger>
                                   <DialogContent>
                                     <DialogHeader>
-                                      <DialogTitle className="font-serif">Từ chối đơn hàng {order.id}</DialogTitle>
+                                      <DialogTitle className="font-serif">Từ chối đơn hàng {(order as any).displayCode || order.id}</DialogTitle>
                                     </DialogHeader>
                                     <div className="space-y-3 mt-2">
                                       <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
@@ -544,6 +605,18 @@ export default function ApprovalPage() {
                                   </DialogContent>
                                 </Dialog>
                               </>
+                            )}
+
+                            {/* Approved actions */}
+                            {order.status === "approved" && (
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-orange-600 hover:bg-orange-700 text-white"
+                                onClick={() => handleCompleteOrder(order)}
+                                disabled={completingOrderId === order.id}
+                              >
+                                <Package className="h-3.5 w-3.5 mr-1" /> Hoàn thành
+                              </Button>
                             )}
                           </div>
                         </TableCell>
@@ -663,7 +736,7 @@ export default function ApprovalPage() {
                   <div className="py-12 text-center">
                     <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-30" />
                     <p className="text-muted-foreground">Chưa có phiếu xuất kho nào</p>
-                    <p className="text-xs text-muted-foreground mt-1">Phiếu sẽ được tạo tự động khi duyệt đơn hàng</p>
+                    <p className="text-xs text-muted-foreground mt-1">Phiếu sẽ được tạo khi đơn đã duyệt và bạn bấm Hoàn thành</p>
                   </div>
                 ) : completedSlips.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">Chưa có phiếu đã hoàn thành</p>
@@ -706,6 +779,90 @@ export default function ApprovalPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!paymentDialogOrder} onOpenChange={(open) => { if (!open) setPaymentDialogOrder(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-serif flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-blue-600" />
+              Hóa đơn & Thanh toán {paymentDialogOrder?.displayCode || paymentDialogOrder?.id}
+            </DialogTitle>
+          </DialogHeader>
+
+          {paymentDialogOrder && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border p-3 space-y-1">
+                  <p>Khách hàng: <strong>{paymentDialogOrder.customer}</strong></p>
+                  <p>SĐT: <strong>{paymentDialogOrder.phone || "—"}</strong></p>
+                  <p>Sản phẩm: <strong>{paymentDialogOrder.items.reduce((s, i) => s + i.qty, 0)}</strong></p>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <p>Tạm tính: <strong>{formatVND(paymentDialogOrder.total)}</strong></p>
+                  <p>Giảm giá: <strong>{formatVND(paymentDialogOrder.discount)}</strong></p>
+                  <p className="text-base">Tổng thanh toán: <strong className="text-primary">{formatVND(paymentDialogOrder.finalTotal)}</strong></p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Phương thức thanh toán</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {paymentMethodOptions.map(pm => (
+                    <Button
+                      key={pm.value}
+                      type="button"
+                      size="sm"
+                      variant={approvalPaymentMethod === pm.value ? "default" : "outline"}
+                      className={cn("h-9 text-xs gap-1.5", approvalPaymentMethod === pm.value && "bg-blue-600 hover:bg-blue-700")}
+                      onClick={() => setApprovalPaymentMethod(pm.value)}
+                    >
+                      {pm.icon}
+                      {pm.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {approvalPaymentMethod === "vietqr" && (
+                <div className="p-4 rounded-lg border border-primary/20 bg-muted/20">
+                  <div className="text-center mb-3">
+                    <p className="font-semibold text-primary">Quét mã QR để thanh toán</p>
+                    <p className="text-xs text-muted-foreground mt-1">Mở app ngân hàng bất kỳ để quét mã VietQR</p>
+                  </div>
+                  <div className="flex justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={vietqrUrl} alt="VietQR thanh toán đơn bán" width={230} height={230} className="rounded-lg border" />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Ghi chú</label>
+                <Textarea
+                  rows={2}
+                  placeholder="Ghi chú thanh toán (nếu có)..."
+                  value={approvalPaymentNote}
+                  onChange={e => setApprovalPaymentNote(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDialogOrder(null)}>Huỷ</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => {
+                if (!paymentDialogOrder) return
+                handleApprove(paymentDialogOrder, approvalPaymentMethod, approvalPaymentNote)
+              }}
+              disabled={!paymentDialogOrder || approvingOrderId === paymentDialogOrder.id}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" /> Duyệt đơn
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
