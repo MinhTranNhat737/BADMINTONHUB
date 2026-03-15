@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { StockLevelIndicator } from "@/components/shared"
-import { formatVND } from "@/lib/utils"
+import { formatPOReference, formatVND } from "@/lib/utils"
 import { purchaseOrderApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
@@ -41,6 +41,7 @@ interface TransferRow { sku: string; qty: number }
 export default function EmployeeInventory() {
   const { user } = useAuth()
   const myWarehouse = user?.warehouse || ""
+  const myWarehouseId = user?.warehouseId || undefined
   const ctx = useInventory()
   const { inventory, transactions, transferRequests, adminSlips } = ctx
 
@@ -154,22 +155,27 @@ export default function EmployeeInventory() {
     return pages
   }
 
-  const handleGrnConfirm = () => {
+  const handleGrnConfirm = async () => {
     const validRows = grnRows.filter(r => r.sku && r.qty > 0)
     if (validRows.length === 0) return
 
-    ctx.importItems({
-      items: validRows.map(r => ({
-        sku: r.sku,
-        name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
-        qty: r.qty,
-        cost: r.cost,
-      })),
-      warehouse: grnWarehouse || myWarehouse,
-      note: grnNote,
-      date: grnDate,
-      operator: user?.fullName || "Nhân viên",
-    })
+    try {
+      await ctx.importItems({
+        items: validRows.map(r => ({
+          sku: r.sku,
+          name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
+          qty: r.qty,
+          cost: r.cost,
+        })),
+        warehouse: grnWarehouse || myWarehouse,
+        note: grnNote,
+        date: grnDate,
+        operator: user?.fullName || "Nhân viên",
+      })
+    } catch {
+      alert("Nhập kho thất bại")
+      return
+    }
 
     setGrnSuccess(true)
     setGrnRows([{ sku: "", qty: 1, cost: 0 }])
@@ -182,11 +188,11 @@ export default function EmployeeInventory() {
     setTimeout(() => setGrnSuccess(false), 3000)
   }
 
-  const handleExportConfirm = () => {
+  const handleExportConfirm = async () => {
     const validRows = exportRows.filter(r => r.sku && r.qty > 0)
     if (validRows.length === 0) return
 
-    const success = ctx.exportItems({
+    const success = await ctx.exportItems({
       items: validRows.map(r => ({
         sku: r.sku,
         name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
@@ -199,7 +205,10 @@ export default function EmployeeInventory() {
       operator: user?.fullName || "Nhân viên",
     })
 
-    if (!success) return
+    if (!success) {
+      alert("Xuất kho thất bại: tồn kho không đủ hoặc dữ liệu chưa hợp lệ")
+      return
+    }
 
     setExportSuccess(true)
     setExportRows([{ sku: "", qty: 1, reason: "" }])
@@ -228,7 +237,7 @@ export default function EmployeeInventory() {
       })))
       setGrnWarehouse(slip.warehouse)
       setGrnSupplier(suppliers.find(s => s.name === slip.supplier)?.id.toString() || "")
-      setGrnPo(slip.poId || "")
+      setGrnPo(formatPOReference(slip.poId) || "")
       setGrnDate(new Date().toISOString().split("T")[0])
       setGrnNote(`Phiếu admin: ${slip.id} — ${slip.note}`)
       setActiveTab("grn")
@@ -251,7 +260,7 @@ export default function EmployeeInventory() {
     return inventory.filter(i => i.warehouse === transferSource && i.available > 0)
   }, [inventory, transferSource])
 
-  const handleTransferConfirm = () => {
+  const handleTransferConfirm = async () => {
     const validRows = transferRows.filter(r => r.sku && r.qty > 0)
     if (validRows.length === 0 || !myWarehouse || !transferSource || myWarehouse === transferSource) return
 
@@ -261,22 +270,32 @@ export default function EmployeeInventory() {
       if (!item || item.available < row.qty) return
     }
 
-    ctx.createTransfer({
-      date: transferDate,
-      fromWarehouse: transferSource,
-      toWarehouse: myWarehouse,
-      items: validRows.map(row => {
-        const item = inventory.find(i => i.sku === row.sku && i.warehouse === transferSource)
-        return { sku: row.sku, name: item?.name || row.sku, qty: row.qty, available: item?.available || 0 }
-      }),
-      reason: transferReason,
-      note: transferNote,
-      status: "pending",
-      pickupMethod: transferPickupMethod,
-      createdBy: user?.fullName || "Nhân viên",
-      customerName: transferCustomerName || undefined,
-      customerPhone: transferCustomerPhone || undefined,
-    })
+    try {
+      const transferId = await ctx.createTransfer({
+        date: transferDate,
+        fromWarehouse: transferSource,
+        toWarehouse: myWarehouse,
+        items: validRows.map(row => {
+          const item = inventory.find(i => i.sku === row.sku && i.warehouse === transferSource)
+          return { sku: row.sku, name: item?.name || row.sku, qty: row.qty, available: item?.available || 0 }
+        }),
+        reason: transferReason || "Điều chuyển nội bộ",
+        note: transferNote,
+        status: "pending",
+        pickupMethod: transferPickupMethod,
+        createdBy: user?.fullName || "Nhân viên",
+        customerName: transferCustomerName || undefined,
+        customerPhone: transferCustomerPhone || undefined,
+      })
+
+      if (!transferId) {
+        alert("Tạo yêu cầu điều chuyển thất bại")
+        return
+      }
+    } catch {
+      alert("Không thể gửi yêu cầu điều chuyển")
+      return
+    }
 
     // NOTE: Items are NOT deducted yet — wait for source warehouse to approve & export
 
@@ -308,7 +327,7 @@ export default function EmployeeInventory() {
   }
 
   // Confirm export transfer form → create export slip and update status
-  const handleExportTransferConfirm = () => {
+  const handleExportTransferConfirm = async () => {
     if (!exportTransferTarget) return
     const t = exportTransferTarget
 
@@ -322,13 +341,18 @@ export default function EmployeeInventory() {
       if (!inv || inv.available < (exportTransferQtys[item.sku] || 0)) return
     }
 
-    ctx.exportTransferItems({
-      transferId: t.id,
-      qtys: exportTransferQtys,
-      date: exportTransferDate,
-      note: exportTransferNote || "Không có ghi chú",
-      operator: user?.fullName || "Nhân viên",
-    })
+    try {
+      await ctx.exportTransferItems({
+        transferId: t.id,
+        qtys: exportTransferQtys,
+        date: exportTransferDate,
+        note: exportTransferNote || "Không có ghi chú",
+        operator: user?.fullName || "Nhân viên",
+      })
+    } catch {
+      alert("Xuất điều chuyển thất bại")
+      return
+    }
 
     // Clean up
     setExportTransferOpen(false)
@@ -338,25 +362,33 @@ export default function EmployeeInventory() {
     setSelectedTransfer(null)
   }
 
-  const handleUpdateTransferStatus = (id: string, newStatus: TransferRequest["status"]) => {
-    if (newStatus === "completed") {
-      // Destination warehouse confirms reception → add items to dest warehouse
-      ctx.receiveTransferItems(id, user?.fullName || "Nhân viên")
-    } else if (newStatus === "rejected") {
-      ctx.updateTransferStatus(id, "rejected")
-    } else if (newStatus === "in-transit") {
-      // Handled by handleExportTransferConfirm instead
-    } else {
-      ctx.updateTransferStatus(id, newStatus)
+  const handleUpdateTransferStatus = async (id: string, newStatus: TransferRequest["status"]) => {
+    try {
+      if (newStatus === "completed") {
+        await ctx.receiveTransferItems(id, user?.fullName || "Nhân viên")
+      } else if (newStatus === "rejected") {
+        await ctx.updateTransferStatus(id, "rejected")
+      } else if (newStatus === "in-transit") {
+        return
+      } else {
+        await ctx.updateTransferStatus(id, newStatus)
+      }
+      setTransferDetailOpen(false)
+      setSelectedTransfer(null)
+    } catch {
+      alert("Cập nhật trạng thái điều chuyển thất bại")
     }
-    setTransferDetailOpen(false)
-    setSelectedTransfer(null)
+  }
+
+  const isMyWarehouse = (name?: string, id?: number) => {
+    if (myWarehouseId) return id === myWarehouseId
+    return String(name || "").trim() === String(myWarehouse || "").trim()
   }
 
   // Phiếu đi: other warehouses requested goods FROM this warehouse → employee approves & exports
-  const phieuDiTransfers = transferRequests.filter(t => t.fromWarehouse === myWarehouse)
+  const phieuDiTransfers = transferRequests.filter(t => isMyWarehouse(t.fromWarehouse, t.fromWarehouseId))
   // Yêu cầu đã gửi: this warehouse's requests to other warehouses → track status
-  const myRequestTransfers = transferRequests.filter(t => t.toWarehouse === myWarehouse)
+  const myRequestTransfers = transferRequests.filter(t => isMyWarehouse(t.toWarehouse, t.toWarehouseId))
 
   const filteredPhieuDi = phieuDiTransfers.filter(t => transferListFilter === "all" || t.status === transferListFilter)
   const filteredMyRequests = myRequestTransfers.filter(t => transferListFilter === "all" || t.status === transferListFilter)
@@ -1778,7 +1810,7 @@ export default function EmployeeInventory() {
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {slip.date}</span>
                           <span>Kho: {slip.warehouse}</span>
                           {slip.supplier && <span>NCC: {slip.supplier}</span>}
-                          {slip.poId && <span>PO: {slip.poId}</span>}
+                          {slip.poId && <span>PO: {formatPOReference(slip.poId)}</span>}
                           <span>Từ: {slip.createdBy}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -1829,7 +1861,7 @@ export default function EmployeeInventory() {
                       <div><span className="text-muted-foreground">Ngày tạo:</span> {selectedSlip.date}</div>
                       <div><span className="text-muted-foreground">Kho:</span> {selectedSlip.warehouse}</div>
                       {selectedSlip.supplier && <div><span className="text-muted-foreground">NCC:</span> {selectedSlip.supplier}</div>}
-                      {selectedSlip.poId && <div><span className="text-muted-foreground">PO:</span> {selectedSlip.poId}</div>}
+                      {selectedSlip.poId && <div><span className="text-muted-foreground">PO:</span> {formatPOReference(selectedSlip.poId)}</div>}
                       <div><span className="text-muted-foreground">Người tạo:</span> {selectedSlip.createdBy}</div>
                     </div>
                     <div>

@@ -14,20 +14,37 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { POStatusBadge } from "@/components/shared"
 import { formatVND } from "@/lib/utils"
-import { purchaseOrderApi } from "@/lib/api"
+import { exportPurchaseOrderDoc } from "@/lib/export-doc"
+import { productApi, purchaseOrderApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   Search, Plus, Eye, FileText, Truck, Package, Clock,
   CheckCircle2, XCircle, Phone, Mail, MapPin, Calendar,
-  Send, ChevronRight, Warehouse, Trash2
+  Send, ChevronRight, Warehouse, Trash2, Download
 } from "lucide-react"
 import { useInventory } from "@/lib/inventory-context"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface POItemData { sku: string; name: string; qty: number; unitCost: number }
+interface Supplier {
+  id: number
+  name: string
+  contact: string
+  phone: string
+  email: string
+}
+
 interface PurchaseOrder {
-  id: string; supplier: string; status: string; createdDate: string;
+  id: string; code: string; supplier: string; status: string; createdDate: string;
   totalValue: number; items: POItemData[]; warehouse: string; note: string;
+}
+
+function formatPOCode(raw: any) {
+  if (raw?.po_code) return String(raw.po_code)
+  if (raw?.order_code) return String(raw.order_code)
+  if (raw?.orderCode) return String(raw.orderCode)
+  const normalized = String(raw?.id || "").replace(/-/g, "").toUpperCase()
+  return normalized ? `PO${normalized.slice(0, 8)}` : "PO00000000"
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -42,26 +59,62 @@ const poStepperSteps = [
 function getPOStep(status: string) {
   switch (status) {
     case "draft": return 0
-    case "pending": return 1
+    case "sent": return 1
     case "confirmed": return 2
-    case "in-transit": return 3
-    case "delivered": return 4
+    case "shipping": return 3
+    case "received": return 4
     case "cancelled": return -1
     default: return 0
   }
 }
 
 // ── PO Detail Sheet ────────────────────────────────────────────────────────
-function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStatus: (id: string, status: string) => void }) {
+function PODetailSheet({
+  po,
+  onUpdateStatus,
+  suppliers,
+}: {
+  po: PurchaseOrder
+  onUpdateStatus: (id: string, status: string) => void
+  suppliers: Supplier[]
+}) {
   const step = getPOStep(po.status)
-  const supplier = suppliers.find(s => s.name === po.supplier)
+  const supplier = suppliers.find((s) => s.name === po.supplier)
   const safeItems = Array.isArray(po.items) ? po.items : []
   const subtotal = safeItems.reduce((s, i) => s + i.qty * i.unitCost, 0)
   const vat = subtotal * 0.08
   const total = subtotal + vat
-  const [receiveWarehouse, setReceiveWarehouse] = useState(po.warehouse || "Kho Hub")
+  const [exportingDoc, setExportingDoc] = useState(false)
   const { createAdminSlip, warehouses } = useInventory()
   const ALL_WAREHOUSES = warehouses.map(w => w.name)
+  const hubWarehouseName = warehouses.find(w => w.isHub || /hub/i.test(w.name))?.name || "Kho Hub"
+  const [receiveWarehouse, setReceiveWarehouse] = useState("Kho Hub")
+  useEffect(() => { setReceiveWarehouse(hubWarehouseName) }, [hubWarehouseName])
+
+  const handleExportDoc = async () => {
+    if (exportingDoc) return
+    try {
+      setExportingDoc(true)
+      await exportPurchaseOrderDoc({
+        id: po.code,
+        date: po.createdDate,
+        status: po.status,
+        supplier: po.supplier,
+        warehouse: po.warehouse,
+        note: po.note,
+        totalValue: po.totalValue,
+        items: safeItems.map(item => ({
+          name: item.name,
+          sku: item.sku,
+          qty: Number(item.qty || 0),
+          unitPrice: Number(item.unitCost || 0),
+          lineTotal: Number(item.qty || 0) * Number(item.unitCost || 0),
+        })),
+      })
+    } finally {
+      setExportingDoc(false)
+    }
+  }
 
   return (
     <SheetContent className="w-full sm:max-w-[540px] overflow-y-auto">
@@ -73,10 +126,15 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-mono text-sm text-primary font-semibold">{po.id}</p>
+            <p className="font-mono text-sm text-primary font-semibold">{po.code}</p>
             <p className="text-muted-foreground text-sm mt-0.5">{po.supplier}</p>
           </div>
-          <POStatusBadge status={po.status} />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleExportDoc} disabled={exportingDoc}>
+              <Download className="h-3.5 w-3.5" /> {exportingDoc ? "Đang xuất..." : "Xuất DOC"}
+            </Button>
+            <POStatusBadge status={po.status} />
+          </div>
         </div>
 
         {/* Stepper */}
@@ -189,12 +247,12 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
               <Button variant="outline" className="flex-1" onClick={() => onUpdateStatus(po.id, "cancelled")}>
                 <XCircle className="h-4 w-4 mr-1" /> Huỷ
               </Button>
-              <Button className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => onUpdateStatus(po.id, "pending")}>
+              <Button className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => onUpdateStatus(po.id, "sent")}>
                 <Send className="h-4 w-4 mr-1" /> Gửi NCC
               </Button>
             </>
           )}
-          {po.status === "pending" && (
+          {po.status === "sent" && (
             <>
               <Button variant="outline" className="flex-1" onClick={() => onUpdateStatus(po.id, "cancelled")}>
                 <XCircle className="h-4 w-4 mr-1" /> Huỷ
@@ -205,11 +263,11 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
             </>
           )}
           {po.status === "confirmed" && (
-            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onUpdateStatus(po.id, "in-transit")}>
+            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onUpdateStatus(po.id, "shipping")}>
               <Truck className="h-4 w-4 mr-1" /> Đánh dấu vận chuyển
             </Button>
           )}
-          {po.status === "in-transit" && (
+          {po.status === "shipping" && (
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2">
                 <Warehouse className="h-4 w-4 text-muted-foreground" />
@@ -227,23 +285,23 @@ function PODetailSheet({ po, onUpdateStatus }: { po: PurchaseOrder; onUpdateStat
                   createAdminSlip({
                     type: "import",
                     source: "admin",
-                    poId: po.id,
+                    poId: po.code,
                     supplier: po.supplier,
                     date: today,
                     warehouse: receiveWarehouse,
                     items: safeItems.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, unitCost: i.unitCost })),
-                    note: `Nhập từ PO ${po.id} - ${po.supplier}`,
+                    note: `Nhập từ PO ${po.code} - ${po.supplier}`,
                     status: "pending",
                     createdBy: "Admin",
                     assignedTo: receiveWarehouse,
                   })
-                  onUpdateStatus(po.id, "delivered")
+                  onUpdateStatus(po.id, "received")
                 }}>
                 <Package className="h-4 w-4 mr-1" /> Tạo phiếu nhập kho → {receiveWarehouse}
               </Button>
             </div>
           )}
-          {po.status === "delivered" && (
+          {po.status === "received" && (
             <div className="flex items-center gap-2 text-sm text-green-600 w-full justify-center py-2">
               <CheckCircle2 className="h-4 w-4" /> Đã nhận hàng và nhập kho
             </div>
@@ -266,66 +324,106 @@ export default function AdminPurchaseOrders() {
 
   // PO list state (API-backed)
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
-  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [products, setProducts] = useState<{ sku: string; name: string; price: number; brand: string; originalPrice: number | null; supplierName: string | null }[]>([])
   const [inventoryItems, setInventoryItems] = useState<any[]>([])
   const ctx = useInventory()
   const ALL_WAREHOUSES = ctx.warehouses.map(w => w.name)
+  const hubWarehouse = useMemo(
+    () => ctx.warehouses.find((w) => w.isHub || /hub/i.test(w.name)),
+    [ctx.warehouses]
+  )
+  const hubWarehouseName = hubWarehouse?.name || ctx.warehouses[0]?.name || "Kho Hub"
 
   useEffect(() => {
     const init = async () => {
       try {
-        const [poRes, supRes] = await Promise.all([
+        const [poRes, supRes, productRes] = await Promise.all([
           purchaseOrderApi.getAll(),
           purchaseOrderApi.getSuppliers(),
+          productApi.getAll({ limit: 500 }),
         ])
         if (poRes.success && poRes.data) {
           setPurchaseOrders(poRes.data.map((p: any) => ({
-            id: String(p.id), supplier: p.supplier_name || p.supplier || "",
+            id: String(p.id), code: formatPOCode(p), supplier: p.supplier_name || p.supplier || "",
             status: p.status || "draft",
             createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
-            totalValue: p.total_value ?? 0, items: p.po_items || [],
-            warehouse: p.warehouse_name || "Kho Hub", note: p.note || "",
+            totalValue: p.total_value ?? 0,
+            items: Array.isArray(p.po_items) ? p.po_items.map((i: any) => ({ sku: i.sku, name: i.name, qty: Number(i.qty), unitCost: Number(i.unitCost ?? i.unit_cost ?? 0) })) : [],
+            warehouse: p.warehouse_name || hubWarehouseName, note: p.note || "",
           })))
         }
         if (supRes.success && supRes.data) setSuppliers(supRes.data)
+        if (productRes.products) {
+          setProducts(productRes.products.map((product) => ({
+            sku: product.sku,
+            name: product.name,
+            price: product.price,
+            brand: product.brand,
+            originalPrice: product.originalPrice,
+            supplierName: product.supplierName || null,
+          })))
+        }
       } catch {}
       // Use inventory from context for SKU lookup
       setInventoryItems(ctx.inventory)
     }
     init()
-  }, [ctx.inventory])
+  }, [ctx.inventory, hubWarehouseName])
 
   const refreshPOs = async () => {
     try {
       const res = await purchaseOrderApi.getAll()
       if (res.success && res.data) {
         setPurchaseOrders(res.data.map((p: any) => ({
-          id: String(p.id), supplier: p.supplier_name || p.supplier || "",
+          id: String(p.id), code: formatPOCode(p), supplier: p.supplier_name || p.supplier || "",
           status: p.status || "draft",
           createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
-          totalValue: p.total_value ?? 0, items: p.po_items || [],
-          warehouse: p.warehouse_name || "Kho Hub", note: p.note || "",
+          totalValue: p.total_value ?? 0,
+          items: Array.isArray(p.po_items) ? p.po_items.map((i: any) => ({ sku: i.sku, name: i.name, qty: Number(i.qty), unitCost: Number(i.unitCost ?? i.unit_cost ?? 0) })) : [],
+          warehouse: p.warehouse_name || hubWarehouseName, note: p.note || "",
         })))
       }
     } catch {}
   }
 
+  useEffect(() => {
+    if (!ALL_WAREHOUSES.length) return
+    if (!ALL_WAREHOUSES.includes(poWarehouse)) {
+      setPoWarehouse(hubWarehouseName)
+    }
+  }, [ALL_WAREHOUSES, poWarehouse, hubWarehouseName])
+
   // PO creation state
-  const [selectedSupplier, setSelectedSupplier] = useState<typeof suppliers[0] | null>(null)
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [poItems, setPoItems] = useState<POItemData[]>([])
   const [addSku, setAddSku] = useState("")
   const [addQty, setAddQty] = useState(1)
   const [supplierSearch, setSupplierSearch] = useState("")
 
-  const uniqueSkuItems = useMemo(() => {
-    const seen = new Set<string>()
-    return inventoryItems.filter((i: any) => {
-      const sku = i.sku
-      if (!sku || seen.has(sku)) return false
-      seen.add(sku)
-      return true
-    })
+  const inventoryBySku = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const item of inventoryItems) {
+      if (!item?.sku || map.has(item.sku)) continue
+      map.set(item.sku, item)
+    }
+    return map
   }, [inventoryItems])
+
+  const uniqueSkuItems = useMemo(() => {
+    return products
+      .filter((product) => !selectedSupplier || !product.supplierName || product.supplierName === selectedSupplier.name)
+      .map((product) => {
+      const inventoryItem = inventoryBySku.get(product.sku)
+      return {
+        sku: product.sku,
+        name: product.name,
+        unitCost: inventoryItem?.unitCost ?? inventoryItem?.unit_cost ?? product.originalPrice ?? Math.round(product.price * 0.75),
+        brand: product.brand,
+        supplierName: product.supplierName,
+      }
+    })
+  }, [products, inventoryBySku, selectedSupplier])
 
   const filteredSuppliers = suppliers.filter(s =>
     !supplierSearch || s.name.toLowerCase().includes(supplierSearch.toLowerCase()) || s.contact.toLowerCase().includes(supplierSearch.toLowerCase())
@@ -359,17 +457,23 @@ export default function AdminPurchaseOrders() {
     setPoItems([])
     setAddSku("")
     setAddQty(1)
-    setPoWarehouse("Kho Hub")
+    setPoWarehouse(hubWarehouseName)
     setPoNote("")
     setSupplierSearch("")
   }
 
   const handleCreatePO = async () => {
     if (poItems.length === 0 || !selectedSupplier) return
+    const selectedWarehouse = ctx.warehouses.find((w) => w.name === poWarehouse)
+    const warehouseId = selectedWarehouse?.id || hubWarehouse?.id || ctx.warehouses[0]?.id
+    if (!warehouseId) {
+      alert("Không tìm thấy kho nhận hàng hợp lệ")
+      return
+    }
     try {
       await purchaseOrderApi.create({
         supplier_id: selectedSupplier.id,
-        warehouse_id: 1, // default hub
+        warehouse_id: warehouseId,
         note: poNote,
         items: poItems.map(i => ({ sku: i.sku, quantity: i.qty, price: i.unitCost })),
       })
@@ -387,7 +491,7 @@ export default function AdminPurchaseOrders() {
 
   const filtered = purchaseOrders.filter(po => {
     if (activeTab !== "all" && po.status !== activeTab) return false
-    if (search && !po.id.toLowerCase().includes(search.toLowerCase()) && !po.supplier.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !po.code.toLowerCase().includes(search.toLowerCase()) && !po.supplier.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
@@ -453,7 +557,7 @@ export default function AdminPurchaseOrders() {
                     <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Chọn sản phẩm" /></SelectTrigger>
                     <SelectContent>
                       {uniqueSkuItems.map(item => (
-                        <SelectItem key={item.sku} value={item.sku}>{item.sku} - {item.name}</SelectItem>
+                        <SelectItem key={item.sku} value={item.sku}>{item.sku} - {item.name}{item.supplierName ? ` (${item.supplierName})` : ""}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -604,8 +708,8 @@ export default function AdminPurchaseOrders() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         {[
           { title: "Tổng PO", value: purchaseOrders.length.toString(), icon: <FileText className="h-5 w-5" />, color: "bg-primary/10 text-primary" },
-          { title: "Chờ duyệt", value: purchaseOrders.filter(p => p.status === "pending").length.toString(), icon: <Clock className="h-5 w-5" />, color: "bg-amber-100 text-amber-600" },
-          { title: "Đang vận chuyển", value: purchaseOrders.filter(p => p.status === "in-transit").length.toString(), icon: <Truck className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
+          { title: "Chờ xác nhận", value: purchaseOrders.filter(p => p.status === "sent").length.toString(), icon: <Clock className="h-5 w-5" />, color: "bg-amber-100 text-amber-600" },
+          { title: "Đang vận chuyển", value: purchaseOrders.filter(p => p.status === "shipping").length.toString(), icon: <Truck className="h-5 w-5" />, color: "bg-blue-100 text-blue-600" },
           { title: "Tổng giá trị", value: formatVND(purchaseOrders.reduce((s, p) => s + p.totalValue, 0)), icon: <Package className="h-5 w-5" />, color: "bg-secondary/10 text-secondary" },
         ].map((card, i) => (
           <Card key={i} className="hover:-translate-y-0.5 transition-all">
@@ -626,10 +730,10 @@ export default function AdminPurchaseOrders() {
           {[
             { value: "all", label: "Tất cả", count: purchaseOrders.length },
             { value: "draft", label: "Nháp", count: purchaseOrders.filter(p => p.status === "draft").length },
-            { value: "pending", label: "Chờ duyệt", count: purchaseOrders.filter(p => p.status === "pending").length },
+            { value: "sent", label: "Chờ xác nhận", count: purchaseOrders.filter(p => p.status === "sent").length },
             { value: "confirmed", label: "Đã xác nhận", count: purchaseOrders.filter(p => p.status === "confirmed").length },
-            { value: "in-transit", label: "Vận chuyển", count: purchaseOrders.filter(p => p.status === "in-transit").length },
-            { value: "delivered", label: "Đã nhận", count: purchaseOrders.filter(p => p.status === "delivered").length },
+            { value: "shipping", label: "Vận chuyển", count: purchaseOrders.filter(p => p.status === "shipping").length },
+            { value: "received", label: "Đã nhận", count: purchaseOrders.filter(p => p.status === "received").length },
           ].map(tab => (
             <TabsTrigger key={tab.value} value={tab.value} className="text-xs gap-1.5 data-[state=active]:text-primary">
               {tab.label}
@@ -664,27 +768,39 @@ export default function AdminPurchaseOrders() {
                 <TableHead className="text-xs text-center">Số SP</TableHead>
                 <TableHead className="text-xs text-right">Giá trị</TableHead>
                 <TableHead className="text-xs">Trạng thái</TableHead>
-                <TableHead className="text-xs w-16"></TableHead>
+                <TableHead className="text-xs w-24"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((po, idx) => (
                 <TableRow key={po.id} className={cn("hover:bg-muted/50", idx % 2 !== 0 && "bg-muted/20")}>
-                  <TableCell className="font-mono text-xs text-primary font-semibold">{po.id}</TableCell>
+                  <TableCell className="font-mono text-xs text-primary font-semibold">{po.code}</TableCell>
                   <TableCell className="text-sm">{po.supplier}</TableCell>
                   <TableCell className="text-sm">{po.createdDate}</TableCell>
                   <TableCell className="text-center text-sm">{Array.isArray(po.items) ? po.items.length : 0}</TableCell>
                   <TableCell className="text-right text-sm font-medium">{formatVND(po.totalValue)}</TableCell>
                   <TableCell><POStatusBadge status={po.status} /></TableCell>
                   <TableCell>
-                    <Sheet>
-                      <SheetTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <Eye className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-1 justify-end">
+                      {po.status === "sent" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs border-secondary text-secondary"
+                          onClick={() => handleUpdateStatus(po.id, "confirmed")}
+                        >
+                          Xác nhận
                         </Button>
-                      </SheetTrigger>
-                      <PODetailSheet po={po} onUpdateStatus={handleUpdateStatus} />
-                    </Sheet>
+                      )}
+                      <Sheet>
+                        <SheetTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        </SheetTrigger>
+                        <PODetailSheet po={po} onUpdateStatus={handleUpdateStatus} suppliers={suppliers} />
+                      </Sheet>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

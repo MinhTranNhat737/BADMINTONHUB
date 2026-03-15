@@ -13,13 +13,21 @@ import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { useInventory } from "@/lib/inventory-context"
 
+function isHubWarehouse(name?: string) {
+  return /hub/i.test(String(name || ""))
+}
+
 export default function HubDashboard() {
   const { user } = useAuth()
   const { inventory, transferRequests, warehouses } = useInventory()
 
   const BRANCH_WAREHOUSES = useMemo(() => warehouses.filter(w => !w.isHub).map(w => w.name), [warehouses])
+  const hubWarehouseName = useMemo(
+    () => warehouses.find((w) => w.isHub || isHubWarehouse(w.name))?.name || "Kho Hub",
+    [warehouses]
+  )
 
-  const hubItems = useMemo(() => inventory.filter(i => i.warehouse === "Kho Hub"), [inventory])
+  const hubItems = useMemo(() => inventory.filter(i => isHubWarehouse(i.warehouse)), [inventory])
   const branchItems = useMemo(() => inventory.filter(i => BRANCH_WAREHOUSES.includes(i.warehouse)), [inventory])
 
   const hubTotalValue = useMemo(() => hubItems.reduce((sum, i) => sum + i.onHand * i.unitCost, 0), [hubItems])
@@ -32,7 +40,7 @@ export default function HubDashboard() {
 
   // Pending transfers from Hub
   const pendingTransfers = transferRequests.filter(t =>
-    t.fromWarehouse === "Kho Hub" && (t.status === "pending" || t.status === "in-transit")
+    isHubWarehouse(t.fromWarehouse) && (t.status === "pending" || t.status === "in-transit")
   )
 
   // Per-warehouse summary
@@ -45,7 +53,7 @@ export default function HubDashboard() {
       const outCount = items.filter(i => i.available === 0).length
       return { warehouse: wh, totalSKU: items.length, totalQty, totalValue, lowCount, outCount }
     })
-  }, [inventory])
+  }, [inventory, BRANCH_WAREHOUSES])
 
   const stats = [
     { title: "Tổng SKU Hub", value: hubTotalSKU.toString(), icon: <Package className="h-5 w-5" />, color: "bg-purple-100 text-purple-600" },
@@ -215,7 +223,7 @@ export default function HubDashboard() {
                     <TableCell className="text-sm">{t.date}</TableCell>
                     <TableCell className="text-sm">
                       <div className="flex items-center gap-1">
-                        Kho Hub <ArrowRight className="h-3 w-3" /> {t.toWarehouse}
+                        {hubWarehouseName} <ArrowRight className="h-3 w-3" /> {t.toWarehouse}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">{t.items.map(i => `${i.name} (x${i.qty})`).join(", ")}</TableCell>

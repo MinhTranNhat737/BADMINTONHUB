@@ -57,10 +57,20 @@ const Transfer = {
       const transfer = result.rows[0];
 
       for (const item of items) {
+        const qty = Number(item.qty ?? item.quantity ?? 0);
+        if (!item.sku || qty <= 0) {
+          throw new Error('Dữ liệu item điều chuyển không hợp lệ');
+        }
         await client.query(
           `INSERT INTO transfer_items (transfer_id, sku, name, qty, available_at_request)
            VALUES ($1, $2, $3, $4, $5)`,
-          [transfer.id, item.sku, item.name, item.qty, item.available_at_request]
+          [
+            transfer.id,
+            item.sku,
+            item.name || item.product_name || item.sku,
+            qty,
+            Number(item.available_at_request ?? item.available ?? 0),
+          ]
         );
       }
 

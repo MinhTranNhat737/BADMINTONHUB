@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { StockLevelIndicator } from "@/components/shared"
-import { formatVND } from "@/lib/utils"
+import { formatPOReference, formatVND } from "@/lib/utils"
+import { exportWarehouseSlipDoc } from "@/lib/export-doc"
 import { purchaseOrderApi } from "@/lib/api"
 import { useInventory, type TransferRequest } from "@/lib/inventory-context"
 import { cn } from "@/lib/utils"
@@ -21,7 +22,7 @@ import {
   Search, Package, AlertTriangle, XOctagon, DollarSign, Plus,
   Trash2, Eye, CheckCircle2, ArrowDownToLine, ArrowUpFromLine,
   FileText, Repeat, ArrowRight, Clock, Inbox, UserCheck, Truck, Users,
-  Send, RefreshCw, FileSpreadsheet
+  Send, RefreshCw, FileSpreadsheet, Download
 } from "lucide-react"
 import { exportInventoryCheckSheet } from "@/lib/export-inventory-check"
 import {
@@ -70,6 +71,7 @@ export default function AdminInventory() {
   const [slipNote, setSlipNote] = useState("")
   const [slipSuccess, setSlipSuccess] = useState(false)
   const [slipFilter, setSlipFilter] = useState<"all" | "pending" | "processed">("all")
+  const [exportingSlipId, setExportingSlipId] = useState<string | null>(null)
   const [invPage, setInvPage] = useState(1)
 
   // Transfer management state
@@ -136,22 +138,27 @@ export default function AdminInventory() {
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  const handleGrnConfirm = () => {
+  const handleGrnConfirm = async () => {
     const validRows = grnRows.filter(r => r.sku && r.qty > 0)
     if (validRows.length === 0 || !grnWarehouse) return
 
-    ctx.importItems({
-      items: validRows.map(r => ({
-        sku: r.sku,
-        name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
-        qty: r.qty,
-        cost: r.cost,
-      })),
-      warehouse: grnWarehouse,
-      note: grnNote,
-      date: grnDate,
-      operator: "Admin",
-    })
+    try {
+      await ctx.importItems({
+        items: validRows.map(r => ({
+          sku: r.sku,
+          name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
+          qty: r.qty,
+          cost: r.cost,
+        })),
+        warehouse: grnWarehouse,
+        note: grnNote,
+        date: grnDate,
+        operator: "Admin",
+      })
+    } catch {
+      alert("Nhập kho thất bại")
+      return
+    }
 
     setGrnSuccess(true)
     setGrnRows([{ sku: "", qty: 1, cost: 0 }])
@@ -159,11 +166,11 @@ export default function AdminInventory() {
     setTimeout(() => setGrnSuccess(false), 3000)
   }
 
-  const handleExportConfirm = () => {
+  const handleExportConfirm = async () => {
     const validRows = exportRows.filter(r => r.sku && r.qty > 0)
     if (validRows.length === 0) return
 
-    const success = ctx.exportItems({
+    const success = await ctx.exportItems({
       items: validRows.map(r => ({
         sku: r.sku,
         name: inventory.find(it => it.sku === r.sku)?.name || r.sku,
@@ -176,7 +183,10 @@ export default function AdminInventory() {
       operator: "Admin",
     })
 
-    if (!success) return
+    if (!success) {
+      alert("Xuất kho thất bại: tồn kho không đủ hoặc dữ liệu chưa hợp lệ")
+      return
+    }
 
     setExportSuccess(true)
     setExportRows([{ sku: "", qty: 1, reason: "" }])
@@ -214,13 +224,46 @@ export default function AdminInventory() {
     setTimeout(() => setSlipSuccess(false), 3000)
   }
 
-  const handleAdminTransferAction = (id: string, action: "rejected") => {
-    ctx.updateTransferStatus(id, action)
-    setTransferDetailOpen(false)
-    setSelectedTransfer(null)
+  const handleAdminTransferAction = async (id: string, action: "rejected") => {
+    try {
+      await ctx.updateTransferStatus(id, action)
+      setTransferDetailOpen(false)
+      setSelectedTransfer(null)
+    } catch {
+      alert("Cập nhật trạng thái điều chuyển thất bại")
+    }
   }
 
   const filteredSlips = adminSlips.filter(s => slipFilter === "all" || s.status === slipFilter)
+
+  const handleExportSlipDoc = async (slip: (typeof adminSlips)[number]) => {
+    if (exportingSlipId) return
+    try {
+      setExportingSlipId(slip.id)
+      await exportWarehouseSlipDoc({
+        id: slip.id,
+        type: slip.type,
+        date: slip.date,
+        status: slip.status,
+        warehouse: slip.warehouse,
+        createdBy: slip.createdBy,
+        assignedTo: slip.assignedTo,
+        processedBy: slip.processedBy,
+        supplier: slip.supplier,
+        poReference: slip.poId,
+        note: slip.note,
+        items: (slip.items || []).map(item => ({
+          name: item.name,
+          sku: item.sku,
+          qty: Number(item.qty || 0),
+          unitPrice: Number(item.unitCost || 0),
+          lineTotal: Number(item.qty || 0) * Number(item.unitCost || 0),
+        })),
+      })
+    } finally {
+      setExportingSlipId(null)
+    }
+  }
   const filteredTransfers = transferRequests.filter(t => transferFilter === "all" || t.status === transferFilter)
 
   const pickupMethodLabel = (method: TransferRequest["pickupMethod"]) => {
@@ -888,6 +931,16 @@ export default function AdminInventory() {
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="font-mono text-xs font-bold text-blue-600">{slip.id}</span>
                           <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[10px] gap-1"
+                              onClick={() => handleExportSlipDoc(slip)}
+                              disabled={exportingSlipId === slip.id}
+                            >
+                              <Download className="h-3 w-3" />
+                              {exportingSlipId === slip.id ? "Đang xuất" : "Xuất DOC"}
+                            </Button>
                             <Badge className={cn("text-[10px]",
                               slip.type === "import" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
                             )}>{slip.type === "import" ? "Nhập" : "Xuất"}</Badge>
@@ -905,7 +958,7 @@ export default function AdminInventory() {
                         <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground">
                           <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" /> {slip.date}</span>
                           {slip.supplier && <span>NCC: {slip.supplier}</span>}
-                          {slip.poId && <span>PO: {slip.poId}</span>}
+                          {slip.poId && <span>PO: {formatPOReference(slip.poId)}</span>}
                         </div>
                         {slip.status === "processed" && slip.processedAt && (
                           <p className="text-[10px] text-emerald-600 mt-1">

@@ -10,21 +10,30 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext, PaginationEllipsis } from "@/components/ui/pagination"
-import { formatVND } from "@/lib/utils"
+import { formatPOReference, formatVND } from "@/lib/utils"
+import { exportInvoiceDoc, exportPurchaseOrderDoc, exportWarehouseSlipDoc } from "@/lib/export-doc"
 import { useInventory } from "@/lib/inventory-context"
 import { orderApi, purchaseOrderApi, salesOrderApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   Search, Eye, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
   ShoppingCart, FileText, Package, Truck, CheckCircle2, Clock,
-  XCircle, Filter,
+  XCircle, Filter, Download,
 } from "lucide-react"
 
 // ── Types ──
 interface POItemData { sku: string; name: string; qty: number; unitCost: number }
 interface PurchaseOrder {
-  id: string; supplier: string; status: string; createdDate: string;
+  id: string; code: string; supplier: string; status: string; createdDate: string;
   totalValue: number; items: POItemData[]; warehouse: string; note: string;
+}
+
+function formatPOCode(raw: any) {
+  if (raw?.po_code) return String(raw.po_code)
+  if (raw?.order_code) return String(raw.order_code)
+  if (raw?.orderCode) return String(raw.orderCode)
+  const normalized = String(raw?.id || "").replace(/-/g, "").toUpperCase()
+  return normalized ? `PO${normalized.slice(0, 8)}` : "PO00000000"
 }
 
 interface OrderItem { productId: number; name: string; price: number; qty: number }
@@ -32,7 +41,7 @@ interface SalesOrder {
   id: string; items: OrderItem[]; customer: { name: string; phone: string; email: string; address: string }
   note: string; subtotal: number; shippingFee: number; total: number; paymentMethod: string
   status: string; createdAt: string; userId: string; type: string
-  fulfillingWarehouse?: string; approvedBy?: string
+  fulfillingWarehouse?: string; approvedBy?: string; createdBy?: string
 }
 
 // ── Unified row type ──
@@ -45,6 +54,7 @@ interface UnifiedOrder {
   qty: number
   value: number
   status: string
+  operator: string
   raw: any
 }
 
@@ -99,7 +109,7 @@ export default function AdminAllOrdersPage() {
         const poRes = await purchaseOrderApi.getAll()
         if (poRes.success && poRes.data) {
           setPurchaseOrders(poRes.data.map((p: any) => ({
-            id: String(p.id), supplier: p.supplier_name || p.supplier || "",
+            id: String(p.id), code: formatPOCode(p), supplier: p.supplier_name || p.supplier || "",
             status: p.status || "draft",
             createdDate: p.created_at ? new Date(p.created_at).toISOString().split("T")[0] : "",
             totalValue: p.total_value ?? 0, items: (p.po_items || []).map((i: any) => ({ sku: i.sku, name: i.name || i.product_name || "", qty: i.qty || i.quantity || 0, unitCost: i.unit_cost || i.unitCost || i.price || 0 })),
@@ -146,9 +156,11 @@ export default function AdminAllOrdersPage() {
 
     // Transactions (GRN imports & exports)
     for (const tx of transactions) {
-      if (tx.type === "transfer-out" || tx.type === "transfer-in") continue // handled by transferRequests
+      if (tx.type === "transfer-out" || tx.type === "transfer-in") continue
+      const prefix = tx.type === "import" ? "PNK" : "PXK"
+      const shortId = String(tx.id).replace(/-/g, "").toUpperCase().slice(0, 8)
       rows.push({
-        id: tx.id,
+        id: `${prefix}-${shortId}`,
         type: tx.type === "import" ? "import" : "export",
         date: tx.date,
         description: `${tx.productName} (${tx.sku}) x${tx.qty}`,
@@ -156,6 +168,7 @@ export default function AdminAllOrdersPage() {
         qty: tx.qty,
         value: tx.qty * tx.cost,
         status: "completed",
+        operator: tx.operator || "",
         raw: tx,
       })
     }
@@ -172,7 +185,8 @@ export default function AdminAllOrdersPage() {
         qty: totalQty,
         value: 0,
         status: tr.status,
-        raw: tr,
+          operator: tr.createdBy || "",
+          raw: tr,
       })
     }
 
@@ -189,7 +203,8 @@ export default function AdminAllOrdersPage() {
         qty: totalQty,
         value: totalVal,
         status: slip.status,
-        raw: slip,
+          operator: slip.createdBy || "",
+          raw: slip,
       })
     }
 
@@ -198,7 +213,7 @@ export default function AdminAllOrdersPage() {
       const items = Array.isArray(po.items) ? po.items : []
       const totalQty = items.reduce((s, i) => s + i.qty, 0)
       rows.push({
-        id: po.id,
+        id: po.code,
         type: "po",
         date: po.createdDate,
         description: `${po.supplier} (${items.length} SP)`,
@@ -206,7 +221,8 @@ export default function AdminAllOrdersPage() {
         qty: totalQty,
         value: po.totalValue,
         status: po.status,
-        raw: po,
+          operator: "",
+          raw: po,
       })
     }
 
@@ -222,6 +238,7 @@ export default function AdminAllOrdersPage() {
         qty: totalQty,
         value: ord.total,
         status: ord.status,
+        operator: ord.createdBy || "",
         raw: ord,
       })
     }
@@ -359,19 +376,20 @@ export default function AdminAllOrdersPage() {
               <TableRow>
                 <TableHead className="text-xs">Mã đơn</TableHead>
                 <TableHead className="text-xs">Loại</TableHead>
-                <TableHead className="text-xs">Ngày</TableHead>
+                <TableHead className="text-xs">Ngày tạo</TableHead>
                 <TableHead className="text-xs">Mô tả</TableHead>
                 <TableHead className="text-xs">Kho</TableHead>
                 <TableHead className="text-xs text-center">SL</TableHead>
                 <TableHead className="text-xs text-right">Giá trị</TableHead>
                 <TableHead className="text-xs">Trạng thái</TableHead>
+                <TableHead className="text-xs">Người tạo</TableHead>
                 <TableHead className="text-xs w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                     <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
                     <p className="text-sm">Không tìm thấy đơn nào</p>
                   </TableCell>
@@ -380,7 +398,10 @@ export default function AdminAllOrdersPage() {
                 <TableRow key={`${row.type}-${row.id}`} className={cn("hover:bg-muted/50", idx % 2 !== 0 && "bg-muted/20")}>
                   <TableCell className="font-mono text-xs text-primary font-semibold max-w-[140px] truncate">{row.id}</TableCell>
                   <TableCell><OrderTypeBadge type={row.type} /></TableCell>
-                  <TableCell className="text-sm">{row.date}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    <div>{row.date ? new Date(row.date).toLocaleDateString("vi-VN") : "—"}</div>
+                    {row.date && <div className="text-muted-foreground">{new Date(row.date).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</div>}
+                  </TableCell>
                   <TableCell className="text-sm max-w-[250px] truncate">{row.description}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{row.warehouse || "—"}</TableCell>
                   <TableCell className="text-center text-sm">{row.qty}</TableCell>
@@ -388,6 +409,7 @@ export default function AdminAllOrdersPage() {
                     {row.value > 0 ? formatVND(row.value) : "—"}
                   </TableCell>
                   <TableCell><OrderStatusBadge status={row.status} /></TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-[100px] truncate">{row.operator || "—"}</TableCell>
                   <TableCell>
                     <Sheet>
                       <SheetTrigger asChild>
@@ -433,6 +455,101 @@ export default function AdminAllOrdersPage() {
 
 // ── Detail Sheet ──
 function OrderDetailSheet({ row }: { row: UnifiedOrder }) {
+  const [exporting, setExporting] = useState(false)
+  const canExportDoc = row.type === "import" || row.type === "export" || row.type === "po" || row.type === "sale"
+
+  const handleExportDoc = async () => {
+    if (!canExportDoc || exporting) return
+    try {
+      setExporting(true)
+
+      if (row.type === "import" || row.type === "export") {
+        const items = Array.isArray(row.raw?.items) && row.raw.items.length > 0
+          ? row.raw.items.map((item: any) => ({
+              name: item.name || "",
+              sku: item.sku,
+              qty: Number(item.qty || 0),
+              unitPrice: Number(item.unitCost ?? item.cost ?? 0),
+            }))
+          : [{
+              name: row.raw?.productName || row.description,
+              sku: row.raw?.sku,
+              qty: Number(row.raw?.qty || row.qty || 0),
+              unitPrice: Number(row.raw?.cost ?? 0),
+            }]
+
+        await exportWarehouseSlipDoc({
+          id: row.id,
+          type: row.type,
+          date: row.date,
+          status: row.status,
+          warehouse: row.warehouse,
+          createdBy: row.raw?.createdBy || row.operator,
+          assignedTo: row.raw?.assignedTo,
+          processedBy: row.raw?.processedBy,
+          supplier: row.raw?.supplier,
+          poReference: row.raw?.poId,
+          note: row.raw?.note || row.description,
+          items,
+        })
+        return
+      }
+
+      if (row.type === "po") {
+        const poItems = Array.isArray(row.raw?.items)
+          ? row.raw.items
+          : Array.isArray(row.raw?.poItems)
+            ? row.raw.poItems
+            : []
+
+        await exportPurchaseOrderDoc({
+          id: row.id,
+          date: row.date,
+          status: row.status,
+          supplier: row.raw?.supplier,
+          warehouse: row.raw?.warehouse || row.warehouse,
+          note: row.raw?.note,
+          totalValue: row.value,
+          items: poItems.map((item: any) => ({
+            name: item.name || "",
+            sku: item.sku,
+            qty: Number(item.qty || 0),
+            unitPrice: Number(item.unitCost ?? item.price ?? 0),
+          })),
+        })
+        return
+      }
+
+      if (row.type === "sale") {
+        const saleItems = Array.isArray(row.raw?.items) ? row.raw.items : []
+        await exportInvoiceDoc({
+          id: row.id,
+          date: row.raw?.createdAt || row.date,
+          status: row.status,
+          paymentMethod: row.raw?.paymentMethod,
+          subtotal: row.raw?.subtotal,
+          shippingFee: row.raw?.shippingFee,
+          total: row.raw?.total ?? row.value,
+          note: row.raw?.note,
+          customer: {
+            name: row.raw?.customer?.name,
+            phone: row.raw?.customer?.phone,
+            email: row.raw?.customer?.email,
+            address: row.raw?.customer?.address,
+          },
+          items: saleItems.map((item: any) => ({
+            name: item.name || "",
+            qty: Number(item.qty || 0),
+            unitPrice: Number(item.price || 0),
+            lineTotal: Number(item.price || 0) * Number(item.qty || 0),
+          })),
+        })
+      }
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <SheetContent className="w-full sm:max-w-[500px] overflow-y-auto">
       <SheetHeader>
@@ -446,6 +563,12 @@ function OrderDetailSheet({ row }: { row: UnifiedOrder }) {
             <p className="text-xs text-muted-foreground mt-0.5">{row.date}</p>
           </div>
           <div className="flex items-center gap-2">
+            {canExportDoc && (
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleExportDoc} disabled={exporting}>
+                <Download className="h-3.5 w-3.5" />
+                {exporting ? "Đang xuất..." : "Xuất DOC"}
+              </Button>
+            )}
             <OrderTypeBadge type={row.type} />
             <OrderStatusBadge status={row.status} />
           </div>
@@ -653,7 +776,7 @@ function OrderDetailSheet({ row }: { row: UnifiedOrder }) {
               {row.raw.poId && (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">PO tham chiếu</span>
-                  <span className="font-mono">{row.raw.poId}</span>
+                  <span className="font-mono">{formatPOReference(row.raw.poId)}</span>
                 </div>
               )}
               {row.raw.processedBy && (

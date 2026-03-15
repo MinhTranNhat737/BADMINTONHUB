@@ -31,15 +31,13 @@ function RelatedProductCard({ product }: { product: ApiProduct }) {
       onClick={() => router.push(`/shop/${product.id}`)}
     >
       <div className="relative aspect-square bg-gradient-to-br from-muted to-background flex items-center justify-center overflow-hidden">
-        {product.image && (
-          <Image
-            src={product.image}
-            alt={product.name}
-            fill
-            className="object-contain p-4 group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-          />
-        )}
+        <Image
+          src={product.image || "/ANH1.webp"}
+          alt={product.name}
+          fill
+          className="object-contain p-4 group-hover:scale-105 transition-transform duration-300"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+        />
         {/* Fallback brand letter */}
         <span className="text-5xl text-muted-foreground/10 font-serif font-bold absolute">{product.brand[0]}</span>
         <div className="absolute top-2 left-2 flex flex-col gap-1">
@@ -318,7 +316,7 @@ export default function ProductDetailPage() {
   const specs = product.specs as Record<string, string> | undefined
   const features = product.features as string[] | undefined
   const description = product.description as string | undefined
-  const images = product.image ? [product.image] : []
+  const images = [product.image || "/ANH1.webp"]
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50/50">

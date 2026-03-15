@@ -14,7 +14,7 @@ import { TOMTOM_API_KEY } from "@/lib/tomtom"
 import dynamic from "next/dynamic"
 import { QRCodeSVG } from "qrcode.react"
 
-const TomTomMap = dynamic<{ lat: number; lng: number; courtLat?: number; courtLng?: number; courtName?: string; routeCoords?: [number, number][] }>(
+const TomTomMap = dynamic<{ lat: number; lng: number; courtLat?: number; courtLng?: number; courtName?: string; routeCoords?: [number, number][]; hideUserMarker?: boolean }>(
   () => import("@/components/tomtom-map"),
   {
     ssr: false,
@@ -370,6 +370,7 @@ function DirectionsSection({ booking, userAddress }: { booking: CompletedBooking
             courtLng={booking.courtLng}
             courtName={booking.courtName}
             routeCoords={routeCoords.length > 0 ? routeCoords : undefined}
+            hideUserMarker={!userCoords}
           />
         </div>
 

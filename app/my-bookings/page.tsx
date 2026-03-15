@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { AddressInput } from "@/components/address-input"
 import { QRCodeSVG } from "qrcode.react"
+import { exportInvoiceDoc } from "@/lib/export-doc"
 
 type SidebarPage = "bookings" | "orders" | "favorites" | "rewards" | "settings"
 
@@ -531,45 +532,27 @@ function OrderInvoiceDialog({ order }: { order: ApiOrder }) {
 
   const handlePrint = () => { window.print() }
 
-  const handleDownload = () => {
-    const lines = [
-      "====================================",
-      "       HÓA ĐƠN - BADMINTONHUB",
-      "====================================",
-      `Mã đơn hàng: ${order.id}`,
-      `Ngày đặt: ${new Date(order.createdAt).toLocaleString("vi-VN")}`,
-      `Trạng thái: ${orderStatusConfig[order.status]?.label || order.status}`,
-      "",
-      "Thông tin khách hàng:",
-      `  Họ tên: ${order.customerName}`,
-      `  SĐT: ${order.customerPhone}`,
-      `  Email: ${order.customerEmail || ''}`,
-      `  Địa chỉ: ${order.shippingAddress}`,
-      "",
-      "------------------------------------",
-      "SẢN PHẨM:",
-      "------------------------------------",
-      ...order.items.map(item =>
-        `  ${item.productName} x${item.quantity} = ${formatVND(item.price * item.quantity)}`
-      ),
-      "------------------------------------",
-      `Thanh toán: ${paymentLabels[order.paymentMethod || ''] || order.paymentMethod}`,
-      "====================================",
-      `TỔNG CỘNG: ${formatVND(order.amount)}`,
-      "====================================",
-      "",
-      order.note ? `Ghi chú: ${order.note}` : "",
-      "",
-      "Cảm ơn bạn đã mua hàng tại BadmintonHub!",
-    ].filter(Boolean).join("\n")
-
-    const blob = new Blob([lines], { type: "text/plain;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `hoa-don-${order.id}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+  const handleDownload = async () => {
+    await exportInvoiceDoc({
+      id: order.id,
+      date: order.createdAt,
+      status: orderStatusConfig[order.status]?.label || order.status,
+      paymentMethod: paymentLabels[order.paymentMethod || ""] || order.paymentMethod,
+      total: order.amount,
+      note: order.note,
+      customer: {
+        name: order.customerName,
+        phone: order.customerPhone,
+        email: order.customerEmail,
+        address: order.shippingAddress,
+      },
+      items: order.items.map((item) => ({
+        name: item.productName,
+        qty: item.quantity,
+        unitPrice: item.price,
+        lineTotal: item.price * item.quantity,
+      })),
+    })
   }
 
   return (

@@ -23,7 +23,7 @@ export default function RegisterPage() {
     email: "",
     phone: "",
     address: "",
-    gender: "" as "nam" | "nữ" | "",
+    gender: "" as "nam" | "nu" | "",
     dateOfBirth: "",
     password: "",
     confirmPassword: "",
@@ -206,10 +206,10 @@ export default function RegisterPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => update("gender", "nữ")}
+                      onClick={() => update("gender", "nu")}
                       className={cn(
                         "flex-1 h-10 rounded-lg border-2 text-sm font-medium transition-all",
-                        form.gender === "nữ"
+                        form.gender === "nu"
                           ? "border-pink-500 bg-pink-50 text-pink-600"
                           : "border-border hover:border-muted-foreground/50"
                       )}

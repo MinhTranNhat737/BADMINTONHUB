@@ -276,6 +276,7 @@ CREATE TABLE sales_orders (
     approved_at     TIMESTAMP,
     reject_reason   VARCHAR(255),
     export_slip_id  UUID,                                  -- Liên kết phiếu xuất kho
+    sales_code      VARCHAR(30) UNIQUE,                    -- Mã đơn: HD-YYMMDD-XXXX
     created_at      TIMESTAMP DEFAULT NOW()
 );
 
@@ -287,7 +288,7 @@ CREATE INDEX idx_sales_orders_status ON sales_orders(status);
 CREATE TABLE sales_order_items (
     id              SERIAL PRIMARY KEY,
     sales_order_id  UUID NOT NULL REFERENCES sales_orders(id) ON DELETE CASCADE,
-    product_id      INT NOT NULL REFERENCES products(id),
+    product_id      INT REFERENCES products(id),
     product_name    VARCHAR(200) NOT NULL,
     price           DECIMAL(12,0) NOT NULL,
     qty             INT NOT NULL CHECK (qty > 0)

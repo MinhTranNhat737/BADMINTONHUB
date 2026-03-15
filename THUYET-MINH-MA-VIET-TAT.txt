@@ -1,0 +1,79 @@
+THUYET MINH MA VIET TAT - BADMINTONHUB
+=====================================
+
+1) CHUAN MA SKU SAN PHAM
+------------------------
+Dinh dang: <Loai><Hang>-<SoThuTu4>
+Vi du:
+- VYN-0001 = Vot + Yonex
+- VVT-0001 = Vot + Victor
+- GLN-0001 = Giay + Li-Ning
+
+1.1) MA LOAI (1 ky tu)
+- V = Vot / Racket
+- G = Giay / Shoes
+- A = Ao / Shirt
+- Q = Quan / Pants / Shorts
+- Y = Vay / Skirt
+- T = Tui / Bag
+- B = Balo / Backpack
+- C = Cuoc / Day / String
+- R = Grip / Overgrip
+- P = Phu kien / Accessory
+- S = Cau / Shuttlecock
+- X = Khac (fallback)
+
+1.2) MA HANG (2 ky tu)
+- YN = Yonex
+- VT = Victor
+- LN = Li-Ning
+- MZ = Mizuno
+- AD = Adidas
+- AS = Asics
+- KW = Kawasaki
+- AP = Apacs
+- FL = Fleet
+- FT = Felet
+- BB = Babolat
+- KP = Kumpoo
+- XX = Hang khac (fallback)
+
+2) CHUAN MA PHIEU
+-----------------
+- PNK-YYYYMMDD-XXX = Phieu nhap kho
+- PXK-YYYYMMDD-XXX = Phieu xuat kho
+- POxxxxxxxx         = Ma PO (8 ky tu dau cua UUID, da chuan tu truoc)
+- HD-YYMMDD-XXXX     = Hoa don ban tai quay
+
+3) CHUAN NOTE VIET TAT (HE THONG)
+---------------------------------
+- KTMH-HUB-ADM = Khoi tao mau hang tu dong vao kho Hub tu trang Admin
+- XKDC         = Xuat kho dieu chuyen
+- NKDC         = Nhap kho dieu chuyen
+- XKDH <ma_don> = Xuat kho theo don hang
+- PBH <ma_phieu_bao_hanh> = Kem phieu bao hanh
+- DC <transfer_id>-><kho_dich> = Ghi chu dieu chuyen kho
+
+4) PHAM VI MIGRATE
+------------------
+Script migrate SKU/note cap nhat cac bang:
+- products.sku
+- inventory.sku
+- inventory_transactions.sku
+- transfer_items.sku
+- po_items.sku
+- slip_items.sku
+
+Script migrate note (chi thay the mau he thong da biet):
+- inventory_transactions.note
+- transfer_requests.note
+- purchase_orders.note
+- admin_warehouse_slips.note
+- sales_orders.note
+- orders.note
+
+5) LENH CHAY
+------------
+Tu thu muc backend:
+- Kiem tra truoc (khong ghi DB): npm run migrate:sku-note:dry
+- Ap dung that:                 npm run migrate:sku-note

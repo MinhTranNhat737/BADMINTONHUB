@@ -8,6 +8,7 @@ const express = require('express');
 const cors    = require('cors');
 const helmet  = require('helmet');
 const morgan  = require('morgan');
+const path    = require('path');
 
 const { testConnection } = require('./config/database');
 const routes             = require('./routes');
@@ -16,6 +17,10 @@ const Booking            = require('./models/booking.model');
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 // ─── Middleware toàn cục ──────────────────────────────────────
 app.set('etag', false);                     // Tắt ETag → luôn trả 200, không 304
@@ -24,10 +29,21 @@ app.use(helmet({
   crossOriginOpenerPolicy: false,
   contentSecurityPolicy: false,
 }));
-app.use(cors({ origin: 'http://localhost:3000', credentials: true })); // Cho phép frontend
+app.use(cors({
+  origin: (origin, callback) => {
+    // Cho phép request không có origin (healthcheck, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(morgan('dev'));                     // Log request
 app.use(express.json({ limit: '10mb' }));  // Parse JSON body
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ─── Routes ──────────────────────────────────────────────────
 app.use('/api', routes);
@@ -62,6 +78,7 @@ const start = async () => {
   app.listen(PORT, () => {
     console.log(`\n🏸 BadmintonHub API đang chạy tại http://localhost:${PORT}`);
     console.log(`📋 API docs: http://localhost:${PORT}/api\n`);
+    console.log(`🌐 CORS origins: ${allowedOrigins.join(', ') || '(none)'}`);
   });
 
   // ─── Cron: Tự động hoàn thành booking hết giờ (mỗi 60 giây) ──

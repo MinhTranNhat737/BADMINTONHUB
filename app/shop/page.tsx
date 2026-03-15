@@ -184,9 +184,17 @@ function ProductCard({ product, onAddToCart, onViewDetail, wishlist, onToggleWis
   wishlist: boolean
   onToggleWishlist: () => void
 }) {
+  const imageSrc = product.image || "/ANH1.webp"
+
   return (
     <Card className="group overflow-hidden hover:-translate-y-0.5 transition-all duration-200 hover:shadow-lg cursor-pointer" onClick={onViewDetail}>
       <div className="relative aspect-square bg-gradient-to-br from-muted to-background flex items-center justify-center overflow-hidden">
+        <img
+          src={imageSrc}
+          alt={product.name}
+          className="absolute inset-0 h-full w-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+        />
         <span className="text-5xl text-muted-foreground/15 font-serif font-bold group-hover:scale-105 transition-transform duration-300">{product.brand[0]}</span>
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
@@ -251,6 +259,7 @@ function ProductDetailDialog({ product, open, onOpenChange, onAddToCart, wishlis
   const discount = product.originalPrice
     ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
     : 0
+  const imageSrc = product.image || "/ANH1.webp"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -261,6 +270,12 @@ function ProductDetailDialog({ product, open, onOpenChange, onAddToCart, wishlis
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-2">
           {/* Product Image */}
           <div className="relative aspect-square rounded-xl bg-gradient-to-br from-muted to-background flex items-center justify-center overflow-hidden">
+            <img
+              src={imageSrc}
+              alt={product.name}
+              className="absolute inset-0 h-full w-full object-contain p-4"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+            />
             <span className="text-7xl text-muted-foreground/10 font-serif font-bold">{product.brand[0]}</span>
             <div className="absolute top-3 left-3 flex flex-col gap-1">
               {product.badges.map(b => (

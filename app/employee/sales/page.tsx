@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -14,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { formatVND } from "@/lib/utils"
-import { productApi, salesOrderApi, orderApi } from "@/lib/api"
+import { productApi, salesOrderApi, orderApi, type ApiSalesCustomer } from "@/lib/api"
 import { useInventory } from "@/lib/inventory-context"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
@@ -31,6 +32,8 @@ interface CartItem {
   name: string
   price: number
   qty: number
+  sku?: string
+  category?: string
 }
 
 interface SaleRecord {
@@ -48,6 +51,7 @@ interface SaleRecord {
 
 interface SalesOrder {
   id: string
+  displayCode: string
   date: string
   time: string
   customer: string
@@ -72,7 +76,7 @@ interface ExportSlip {
   id: string
   orderId: string
   date: string
-  items: { name: string; qty: number; price: number }[]
+  items: { name: string; qty: number; price: number; sku?: string; category?: string }[]
   total: number
   customer: string
   note: string
@@ -81,6 +85,15 @@ interface ExportSlip {
   completedAt?: string
   completedBy?: string
 }
+
+interface WarrantyInfo {
+  taxCode: string
+  companyName: string
+  companyAddress: string
+  companyEmail: string
+}
+
+type CustomerMode = "retail_account" | "walk_in" | "business"
 
 interface OnlineOrder {
   id: string
@@ -123,8 +136,21 @@ export default function EmployeeSales() {
   const { user } = useAuth()
   const [search, setSearch] = useState("")
   const [cart, setCart] = useState<CartItem[]>([])
+  const [customerMode, setCustomerMode] = useState<CustomerMode>("retail_account")
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
+  const [customerSearch, setCustomerSearch] = useState("")
+  const [customerResults, setCustomerResults] = useState<ApiSalesCustomer[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<ApiSalesCustomer | null>(null)
+  const [walkInCreateAccount, setWalkInCreateAccount] = useState(true)
+  const [walkInCredentials, setWalkInCredentials] = useState<{ username: string; password: string } | null>(null)
+  const [businessInfo, setBusinessInfo] = useState<WarrantyInfo>({
+    taxCode: "",
+    companyName: "",
+    companyAddress: "",
+    companyEmail: "",
+  })
+  const [taxLookupState, setTaxLookupState] = useState<"idle" | "loading" | "ok" | "error">("idle")
   const [discount, setDiscount] = useState(0)
   const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent")
   const [paymentMethod, setPaymentMethod] = useState("cash")
@@ -146,10 +172,49 @@ export default function EmployeeSales() {
   const [selectedSlipDetail, setSelectedSlipDetail] = useState<ExportSlip | null>(null)
 
   // Load data from API + localStorage fallback
-  const [products, setProducts] = useState<{id: number; name: string; price: number; brand: string; inStock: boolean}[]>([])
+  const [products, setProducts] = useState<{id: number; sku?: string; name: string; price: number; brand: string; inStock: boolean}[]>([])
+  const mapApiSalesOrder = (o: any): SalesOrder => {
+    const items = (o.items || []).map((i: any) => ({
+      productId: i.product_id || 0,
+      name: i.product_name || i.name || "",
+      price: Number(i.price || 0),
+      qty: Number(i.qty || i.quantity || 0),
+      sku: i.sku || i.product_sku,
+      category: i.category || "",
+    }))
+    const total = Number(o.total ?? items.reduce((sum: number, item: CartItem) => sum + item.price * item.qty, 0))
+    const discount = Number(o.discount ?? 0)
+    const finalTotal = Number(o.final_total ?? (total - discount))
+
+    return {
+      id: String(o.id),
+      displayCode: o.sales_code || `HD-${String(o.id).slice(0, 8).toUpperCase()}`,
+      date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
+      time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
+      customer: o.customer_name || "Khách lẻ",
+      phone: o.customer_phone || "",
+      items,
+      total,
+      discount,
+      finalTotal,
+      paymentMethod: o.payment_method || "",
+      note: o.note || "",
+      status: o.status || "pending",
+      createdBy: o.employee_name || o.created_by_name || o.createdBy || o.created_by || "Nhân viên",
+    }
+  }
+
   useEffect(() => {
     productApi.getAll().then(res => {
-      if (Array.isArray(res)) setProducts(res.map((p: any) => ({ id: p.id, name: p.name, price: p.price, brand: p.brand || "", inStock: p.inStock ?? true })))
+      const list = Array.isArray(res) ? res : (res.products || [])
+      setProducts(list.map((p: any) => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        price: p.price,
+        brand: p.brand || "",
+        inStock: p.inStock ?? p.in_stock ?? true,
+      })))
     }).catch(() => {})
   }, [])
   useEffect(() => {
@@ -157,15 +222,7 @@ export default function EmployeeSales() {
       try {
         const soRes = await salesOrderApi.getAll()
         if (soRes.success && soRes.data) {
-          setSalesOrders(soRes.data.map((o: any) => ({
-            id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
-            time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
-            customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
-            items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-            total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
-            paymentMethod: o.payment_method || "", note: o.note || "",
-            status: o.status || "pending", createdBy: o.created_by || "",
-          })))
+          setSalesOrders(soRes.data.map(mapApiSalesOrder))
         }
       } catch {}
       try {
@@ -174,9 +231,9 @@ export default function EmployeeSales() {
           setOnlineOrders(orRes.orders.map((o: any) => ({
             id: String(o.id), items: (o.items || []).map((i: any) => ({ productId: i.productId || i.product_id, name: i.productName || i.name || "", price: i.price || 0, qty: i.quantity || i.qty || 0 })),
             customer: { name: o.customerName || "", phone: o.customerPhone || "", email: o.customerEmail || "", address: o.shippingAddress || "" },
-            note: o.note || "", subtotal: o.totalAmount || 0, shippingFee: 0, total: o.totalAmount || 0,
+            note: o.note || "", subtotal: o.subtotal || o.totalAmount || o.amount || 0, shippingFee: o.shippingFee || 0, total: o.totalAmount || o.amount || 0,
             paymentMethod: o.paymentMethod || "", status: o.status || "", createdAt: o.createdAt || "",
-            userId: o.userId || "", type: "online" as const, deliveryMethod: "delivery" as const,
+            userId: o.userId || "", type: "online" as const, deliveryMethod: o.deliveryMethod || "delivery",
           })))
         }
       } catch {}
@@ -197,24 +254,65 @@ export default function EmployeeSales() {
     if (saleSuccess) {
       salesOrderApi.getAll().then((res: any) => {
         if (res.success && res.data) {
-          setSalesOrders(res.data.map((o: any) => ({
-            id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
-            time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
-            customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
-            items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-            total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
-            paymentMethod: o.payment_method || "", note: o.note || "",
-            status: o.status || "pending", createdBy: o.created_by || "",
-          })))
+          setSalesOrders(res.data.map(mapApiSalesOrder))
         }
       }).catch(() => {})
     }
   }, [saleSuccess])
 
+  useEffect(() => {
+    if (customerMode !== "retail_account") return
+
+    const keyword = customerSearch.trim()
+    if (keyword.length < 2) {
+      setCustomerResults([])
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      const list = await salesOrderApi.searchCustomers(keyword)
+      setCustomerResults(list)
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [customerSearch, customerMode])
+
+  const normalizePhone = (value: string) => value.replace(/\D/g, "")
+
+  const clearCustomerSelection = () => {
+    setSelectedCustomer(null)
+    setCustomerResults([])
+    setCustomerSearch("")
+  }
+
+  const handleTaxCodeLookup = async () => {
+    const taxCode = normalizePhone(businessInfo.taxCode)
+    if (taxCode.length < 10) {
+      setTaxLookupState("error")
+      return
+    }
+
+    setTaxLookupState("loading")
+    try {
+      const candidateName = `Doanh nghiệp MST ${taxCode}`
+      setBusinessInfo((prev) => ({
+        ...prev,
+        taxCode,
+        companyName: prev.companyName || candidateName,
+      }))
+      setTaxLookupState("ok")
+    } catch {
+      setTaxLookupState("error")
+    }
+  }
+
   const filteredSalesOrders = useMemo(() => {
     return salesOrders.filter(o => {
       if (orderStatusFilter !== "all" && o.status !== orderStatusFilter) return false
-      if (orderSearch && !o.id.toLowerCase().includes(orderSearch.toLowerCase()) && !o.customer.toLowerCase().includes(orderSearch.toLowerCase())) return false
+      if (orderSearch
+        && !o.id.toLowerCase().includes(orderSearch.toLowerCase())
+        && !o.displayCode.toLowerCase().includes(orderSearch.toLowerCase())
+        && !o.customer.toLowerCase().includes(orderSearch.toLowerCase())) return false
       return true
     })
   }, [salesOrders, orderStatusFilter, orderSearch])
@@ -257,6 +355,7 @@ export default function EmployeeSales() {
     totalAvailable: number
     unitCost: number
     retailPrice: number
+    productId?: number
     warehouses: { name: string; available: number }[]
   }
 
@@ -270,10 +369,12 @@ export default function EmployeeSales() {
         existing.warehouses.push({ name: item.warehouse, available: item.available })
       } else {
         // Match to retail product if available
-        const retail = products.find(p =>
+        const retailBySku = products.find(p => p.sku && p.sku === item.sku)
+        const retailByName = products.find(p =>
           p.name.toLowerCase().includes(item.name.toLowerCase().split(" ").slice(0, 3).join(" ")) ||
           item.name.toLowerCase().includes(p.name.toLowerCase().split(" ").slice(0, 3).join(" "))
         )
+        const retail = retailBySku || retailByName
         map.set(item.sku, {
           sku: item.sku,
           name: item.name,
@@ -282,12 +383,13 @@ export default function EmployeeSales() {
           totalAvailable: item.available,
           unitCost: item.unitCost,
           retailPrice: retail?.price ?? Math.round(item.unitCost * 1.4),
+          productId: retail?.id,
           warehouses: [{ name: item.warehouse, available: item.available }],
         })
       }
     }
     return Array.from(map.values())
-  }, [inventoryItems])
+  }, [inventoryItems, products])
 
   const filteredInventory = useMemo(() => {
     return aggregatedInventory.filter(item => {
@@ -306,9 +408,14 @@ export default function EmployeeSales() {
       if (existing) {
         return prev.map(c => c.name === item.name ? { ...c, qty: c.qty + 1 } : c)
       }
-      // Use negative hash of sku as productId to avoid collision with retail product ids
-      const fakeId = -(item.sku.split("").reduce((a, c) => a + c.charCodeAt(0), 0))
-      return [...prev, { productId: fakeId, name: item.name, price: item.retailPrice, qty: 1 }]
+      return [...prev, {
+        productId: item.productId ?? 0,
+        name: item.name,
+        price: item.retailPrice,
+        qty: 1,
+        sku: item.sku,
+        category: item.category,
+      }]
     })
   }
 
@@ -327,7 +434,7 @@ export default function EmployeeSales() {
           item.productId === product.id ? { ...item, qty: item.qty + 1 } : item
         )
       }
-      return [...prev, { productId: product.id, name: product.name, price: product.price, qty: 1 }]
+      return [...prev, { productId: product.id, name: product.name, price: product.price, qty: 1, sku: product.sku }]
     })
   }
 
@@ -343,31 +450,102 @@ export default function EmployeeSales() {
     setCart(prev => prev.filter(item => item.productId !== productId))
   }
 
-  const handleConfirmSale = () => {
+  const handleConfirmSale = async () => {
     if (cart.length === 0) return
+
+    let resolvedName = customerName.trim()
+    let resolvedPhone = normalizePhone(customerPhone)
+    let enrichedNote = note.trim()
+    let generatedCredentials: { username: string; password: string } | null = null
+
+    if (customerMode === "retail_account") {
+      if (selectedCustomer) {
+        resolvedName = selectedCustomer.fullName || resolvedName
+        resolvedPhone = normalizePhone(selectedCustomer.phone || resolvedPhone)
+      }
+      resolvedName = resolvedName || "Khách lẻ"
+    }
+
+    if (customerMode === "walk_in") {
+      if (!resolvedPhone) return
+
+      if (walkInCreateAccount) {
+        const accountResult = await salesOrderApi.createWalkInAccount({
+          full_name: resolvedName || `Khách vãng lai ${resolvedPhone.slice(-4)}`,
+          phone: resolvedPhone,
+          create_account: true,
+        })
+
+        if (!accountResult.success || !accountResult.user) return
+
+        resolvedName = accountResult.user.fullName || resolvedName || `Khách vãng lai ${resolvedPhone.slice(-4)}`
+        resolvedPhone = normalizePhone(accountResult.user.phone || resolvedPhone)
+        generatedCredentials = accountResult.credentials || null
+        if (generatedCredentials) {
+          const credentialNote = `TKKH ${generatedCredentials.username}/${generatedCredentials.password}`
+          enrichedNote = [credentialNote, enrichedNote].filter(Boolean).join(" | ")
+        }
+      } else {
+        resolvedName = resolvedName || `Khách vãng lai ${resolvedPhone.slice(-4)}`
+      }
+    }
+
+    if (customerMode === "business") {
+      const taxCode = normalizePhone(businessInfo.taxCode)
+      resolvedName = businessInfo.companyName.trim() || resolvedName || "Khách doanh nghiệp"
+
+      const vatPayload = [
+        `VAT-MST:${taxCode || "N/A"}`,
+        `CTY:${businessInfo.companyName || resolvedName}`,
+        `EMAIL:${businessInfo.companyEmail || ""}`,
+        `ADDR:${businessInfo.companyAddress || ""}`,
+      ].join(";")
+
+      enrichedNote = [vatPayload, enrichedNote].filter(Boolean).join(" | ")
+    }
+
+    if (!resolvedName) resolvedName = "Khách lẻ"
 
     const now = new Date()
     const sale: SaleRecord = {
       id: `HD-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")}`,
       date: now.toISOString().split("T")[0],
       time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
-      customer: customerName || "Khách lẻ",
+      customer: resolvedName,
       items: [...cart],
       total: cartTotal,
       discount: discountAmount,
       finalTotal,
       paymentMethod: paymentMethod === "cash" ? "Tiền mặt" : paymentMethod === "momo" ? "MoMo" : paymentMethod === "vnpay" ? "VNPay" : "Chuyển khoản",
-      note,
+      note: enrichedNote,
     }
 
     // Save as pending sales order via API
-    salesOrderApi.create({
-      branch_id: 1,
-      customer_name: customerName || "Khách lẻ",
-      customer_phone: customerPhone || undefined,
-      note: note || undefined,
-      items: cart.map(c => ({ sku: String(c.productId), quantity: c.qty, price: c.price })),
-    }).catch(() => {})
+    try {
+      const res: any = await salesOrderApi.create({
+        branch_id: 1,
+        customer_name: resolvedName,
+        customer_phone: resolvedPhone || undefined,
+        total: cartTotal,
+        discount: discountAmount,
+        final_total: finalTotal,
+        payment_method: paymentMethod === "cash" ? "Tiền mặt" : paymentMethod === "momo" ? "MoMo" : paymentMethod === "vnpay" ? "VNPay" : "Chuyển khoản",
+        note: enrichedNote || undefined,
+        items: cart.map(c => ({
+          product_id: c.productId > 0 ? c.productId : undefined,
+          product_name: c.name,
+          sku: c.sku,
+          qty: c.qty,
+          price: c.price,
+        })),
+      })
+      if (res?.data?.sales_code) sale.id = res.data.sales_code
+      if (!res?.success) return
+    } catch {
+      return
+    }
+
+    setWalkInCredentials(generatedCredentials)
 
     setSalesHistory(prev => [sale, ...prev])
     setLastSale(sale)
@@ -377,10 +555,16 @@ export default function EmployeeSales() {
     setCart([])
     setCustomerName("")
     setCustomerPhone("")
+    setCustomerSearch("")
+    setSelectedCustomer(null)
+    setCustomerResults([])
+    setBusinessInfo({ taxCode: "", companyName: "", companyAddress: "", companyEmail: "" })
+    setTaxLookupState("idle")
     setDiscount(0)
     setNote("")
 
     setTimeout(() => setSaleSuccess(false), 4000)
+    router.push("/employee/approval")
   }
 
   const paymentMethods = [
@@ -409,6 +593,11 @@ export default function EmployeeSales() {
             <p className="text-xs text-green-700 mt-0.5">
               Tổng tiền: {formatVND(lastSale.finalTotal)} • Khách hàng: {lastSale.customer} • {lastSale.paymentMethod}
             </p>
+            {walkInCredentials && (
+              <p className="text-xs text-blue-700 mt-1">
+                Tài khoản khách: <strong>{walkInCredentials.username}</strong> / <strong>{walkInCredentials.password}</strong>
+              </p>
+            )}
           </div>
           <Button size="sm" variant="outline" className="shrink-0 text-xs" onClick={() => router.push("/employee/approval")}>
             Xem duyệt đơn
@@ -596,28 +785,192 @@ export default function EmployeeSales() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Customer Info */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
                     <div>
-                      <Label className="text-xs">Khách hàng</Label>
-                      <div className="relative mt-1">
-                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input
-                          placeholder="Khách lẻ"
-                          value={customerName}
-                          onChange={e => setCustomerName(e.target.value)}
-                          className="h-8 text-xs pl-8"
-                        />
+                      <Label className="text-xs">Loại khách hàng</Label>
+                      <Select
+                        value={customerMode}
+                        onValueChange={(value: CustomerMode) => {
+                          setCustomerMode(value)
+                          clearCustomerSelection()
+                          setWalkInCredentials(null)
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="retail_account">Khách lẻ có tài khoản</SelectItem>
+                          <SelectItem value="walk_in">Khách lẻ vãng lai</SelectItem>
+                          <SelectItem value="business">Khách doanh nghiệp (VAT)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {customerMode === "retail_account" && (
+                      <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
+                        <div>
+                          <Label className="text-xs">Tìm tài khoản (tên/sđt/mã KH)</Label>
+                          <Input
+                            placeholder="Nhập tối thiểu 2 ký tự"
+                            value={customerSearch}
+                            onChange={(e) => setCustomerSearch(e.target.value)}
+                            className="h-8 text-xs mt-1"
+                          />
+                        </div>
+
+                        {customerResults.length > 0 && (
+                          <div className="max-h-32 overflow-y-auto rounded border bg-background">
+                            {customerResults.map((customer) => (
+                              <button
+                                key={`${customer.id || customer.userCode}-${customer.phone}`}
+                                type="button"
+                                className="w-full text-left px-2.5 py-2 text-xs hover:bg-muted border-b last:border-b-0"
+                                onClick={() => {
+                                  setSelectedCustomer(customer)
+                                  setCustomerName(customer.fullName)
+                                  setCustomerPhone(customer.phone)
+                                  setCustomerSearch(`${customer.fullName} • ${customer.phone}`)
+                                  setCustomerResults([])
+                                }}
+                              >
+                                <p className="font-medium">{customer.fullName || "(Chưa có tên)"}</p>
+                                <p className="text-muted-foreground">{customer.phone} {customer.userCode ? `• ${customer.userCode}` : ""}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {selectedCustomer && (
+                          <div className="flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs">
+                            <span>Đã chọn: <strong>{selectedCustomer.fullName}</strong> ({selectedCustomer.phone})</span>
+                            <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={clearCustomerSelection}>Bỏ chọn</Button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Số điện thoại</Label>
-                      <Input
-                        placeholder="SĐT"
-                        value={customerPhone}
-                        onChange={e => setCustomerPhone(e.target.value)}
-                        className="h-8 text-xs mt-1"
-                      />
-                    </div>
+                    )}
+
+                    {customerMode === "walk_in" && (
+                      <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Tên khách</Label>
+                            <Input
+                              placeholder="Khách vãng lai"
+                              value={customerName}
+                              onChange={e => setCustomerName(e.target.value)}
+                              className="h-8 text-xs mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Số điện thoại</Label>
+                            <Input
+                              placeholder="SĐT"
+                              value={customerPhone}
+                              onChange={e => setCustomerPhone(normalizePhone(e.target.value))}
+                              className="h-8 text-xs mt-1"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between rounded border px-2.5 py-2">
+                          <div>
+                            <p className="text-xs font-medium">Cấp tài khoản cho khách vãng lai</p>
+                            <p className="text-[11px] text-muted-foreground">Tự tạo username/password để khách mua sau tiện hơn</p>
+                          </div>
+                          <Switch checked={walkInCreateAccount} onCheckedChange={setWalkInCreateAccount} />
+                        </div>
+                      </div>
+                    )}
+
+                    {customerMode === "business" && (
+                      <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Tên doanh nghiệp</Label>
+                            <Input
+                              placeholder="Công ty..."
+                              value={businessInfo.companyName}
+                              onChange={(e) => setBusinessInfo((prev) => ({ ...prev, companyName: e.target.value }))}
+                              className="h-8 text-xs mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Mã số thuế</Label>
+                            <div className="mt-1 flex gap-2">
+                              <Input
+                                placeholder="Nhập MST"
+                                value={businessInfo.taxCode}
+                                onChange={(e) => setBusinessInfo((prev) => ({ ...prev, taxCode: normalizePhone(e.target.value) }))}
+                                className="h-8 text-xs"
+                              />
+                              <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={handleTaxCodeLookup}>
+                                Tra MST
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Email nhận VAT</Label>
+                            <Input
+                              placeholder="ketoan@company.vn"
+                              value={businessInfo.companyEmail}
+                              onChange={(e) => setBusinessInfo((prev) => ({ ...prev, companyEmail: e.target.value }))}
+                              className="h-8 text-xs mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">SĐT liên hệ</Label>
+                            <Input
+                              placeholder="SĐT"
+                              value={customerPhone}
+                              onChange={e => setCustomerPhone(normalizePhone(e.target.value))}
+                              className="h-8 text-xs mt-1"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Địa chỉ xuất hóa đơn</Label>
+                          <Input
+                            placeholder="Địa chỉ công ty"
+                            value={businessInfo.companyAddress}
+                            onChange={(e) => setBusinessInfo((prev) => ({ ...prev, companyAddress: e.target.value }))}
+                            className="h-8 text-xs mt-1"
+                          />
+                        </div>
+                        {taxLookupState !== "idle" && (
+                          <p className={cn("text-[11px]", taxLookupState === "ok" ? "text-green-600" : taxLookupState === "loading" ? "text-blue-600" : "text-red-600")}>
+                            {taxLookupState === "loading" ? "Đang tra thông tin MST..." : taxLookupState === "ok" ? "Đã cập nhật thông tin MST." : "MST chưa hợp lệ, vui lòng kiểm tra lại."}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {customerMode === "retail_account" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs">Khách hàng</Label>
+                          <div className="relative mt-1">
+                            <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input
+                              placeholder="Khách lẻ"
+                              value={customerName}
+                              onChange={e => setCustomerName(e.target.value)}
+                              className="h-8 text-xs pl-8"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Số điện thoại</Label>
+                          <Input
+                            placeholder="SĐT"
+                            value={customerPhone}
+                            onChange={e => setCustomerPhone(normalizePhone(e.target.value))}
+                            className="h-8 text-xs mt-1"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Cart Items */}
@@ -753,6 +1106,10 @@ export default function EmployeeSales() {
                             setNote("")
                             setCustomerName("")
                             setCustomerPhone("")
+                            clearCustomerSelection()
+                            setWalkInCredentials(null)
+                            setBusinessInfo({ taxCode: "", companyName: "", companyAddress: "", companyEmail: "" })
+                            setTaxLookupState("idle")
                           }}
                         >
                           Huỷ đơn
@@ -871,7 +1228,7 @@ export default function EmployeeSales() {
                             "hover:bg-muted/50",
                             order.status === "pending" && "bg-amber-50/30"
                           )}>
-                            <TableCell className="font-mono text-xs text-blue-600 font-bold">{order.id}</TableCell>
+                            <TableCell className="font-mono text-xs text-blue-600 font-bold">{order.displayCode}</TableCell>
                             <TableCell className="text-sm">{order.date} {order.time}</TableCell>
                             <TableCell>
                               <p className="text-sm font-medium">{order.customer}</p>
@@ -968,7 +1325,7 @@ export default function EmployeeSales() {
                 <>
                   <DialogHeader>
                     <DialogTitle className="font-serif flex items-center gap-2">
-                      <Receipt className="h-5 w-5" /> Chi tiết đơn {selectedOrderDetail.id}
+                      <Receipt className="h-5 w-5" /> Chi tiết đơn {selectedOrderDetail.displayCode}
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">

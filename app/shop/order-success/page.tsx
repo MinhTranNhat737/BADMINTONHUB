@@ -13,6 +13,7 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import { formatVND } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
+import { exportInvoiceDoc } from "@/lib/export-doc"
 
 interface OrderData {
   id: string
@@ -76,47 +77,30 @@ export default function OrderSuccessPage() {
     window.print()
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!order) return
-    const invoiceText = [
-      "====================================",
-      "       HÓA ĐƠN - BADMINTONHUB",
-      "====================================",
-      `Mã đơn hàng: ${order.id}`,
-      `Ngày đặt: ${new Date(order.createdAt).toLocaleString("vi-VN")}`,
-      "",
-      "Thông tin khách hàng:",
-      `  Họ tên: ${order.customer.name}`,
-      `  SĐT: ${order.customer.phone}`,
-      `  Email: ${order.customer.email}`,
-      `  Địa chỉ: ${order.customer.address}`,
-      "",
-      "------------------------------------",
-      "SẢN PHẨM:",
-      "------------------------------------",
-      ...order.items.map(item =>
-        `  ${item.name} x${item.qty} = ${formatVND(item.price * item.qty)}`
-      ),
-      "------------------------------------",
-      `Tạm tính: ${formatVND(order.subtotal)}`,
-      `Vận chuyển: ${order.shippingFee === 0 ? "Miễn phí" : formatVND(order.shippingFee)}`,
-      `Thanh toán: ${paymentLabels[order.paymentMethod] || order.paymentMethod}`,
-      "====================================",
-      `TỔNG CỘNG: ${formatVND(order.total)}`,
-      "====================================",
-      "",
-      order.note ? `Ghi chú: ${order.note}` : "",
-      "",
-      "Cảm ơn bạn đã mua hàng tại BadmintonHub!",
-    ].filter(Boolean).join("\n")
-
-    const blob = new Blob([invoiceText], { type: "text/plain;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `hoa-don-${order.id}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    await exportInvoiceDoc({
+      id: order.id,
+      date: order.createdAt,
+      status: order.status,
+      paymentMethod: paymentLabels[order.paymentMethod] || order.paymentMethod,
+      subtotal: order.subtotal,
+      shippingFee: order.shippingFee,
+      total: order.total,
+      note: order.note,
+      customer: {
+        name: order.customer.name,
+        phone: order.customer.phone,
+        email: order.customer.email,
+        address: order.customer.address,
+      },
+      items: order.items.map((item) => ({
+        name: item.name,
+        qty: item.qty,
+        unitPrice: item.price,
+        lineTotal: item.price * item.qty,
+      })),
+    })
   }
 
   const data = order

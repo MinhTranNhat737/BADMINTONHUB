@@ -26,9 +26,17 @@ import {
 
 const HUB_INV_PAGE_SIZE = 20
 
+function isHubWarehouse(name?: string) {
+  return /hub/i.test(String(name || ""))
+}
+
 export default function HubInventoryPage() {
   const { user } = useAuth()
-  const { inventory } = useInventory()
+  const { inventory, warehouses } = useInventory()
+  const hubWarehouseName = useMemo(
+    () => warehouses.find((w) => w.isHub || isHubWarehouse(w.name))?.name || "Kho Hub",
+    [warehouses]
+  )
 
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
@@ -36,7 +44,7 @@ export default function HubInventoryPage() {
   const [hubInvPage, setHubInvPage] = useState(1)
 
   // Hub only items
-  const hubItems = useMemo(() => inventory.filter(i => i.warehouse === "Kho Hub"), [inventory])
+  const hubItems = useMemo(() => inventory.filter(i => isHubWarehouse(i.warehouse)), [inventory])
 
   const categories = [...new Set(hubItems.map(i => i.category))]
 
@@ -99,7 +107,7 @@ export default function HubInventoryPage() {
           onClick={() => {
             exportInventoryCheckSheet({
               items: filtered,
-              warehouseFilter: "Kho Hub",
+              warehouseFilter: hubWarehouseName,
               categoryFilter,
               exportedBy: user?.fullName || "NV Hub",
             })

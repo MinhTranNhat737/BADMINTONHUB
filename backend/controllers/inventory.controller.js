@@ -51,7 +51,7 @@ const getTransactions = async (req, res, next) => {
 const importStock = async (req, res, next) => {
   try {
     const { sku, warehouseId, qty, cost, note } = req.body;
-    if (!sku || !warehouseId || !qty) {
+    if (!sku || !warehouseId || qty === undefined || qty === null) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin: sku, warehouseId, qty' });
     }
     await Inventory.importStock({

@@ -67,6 +67,8 @@ export default function CheckoutPage() {
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
   const shippingFee = deliveryMethod === "pickup" ? 0 : (subtotal >= 500000 ? 0 : 30000)
   const total = subtotal + shippingFee
+  const vnpayQrUrl = `https://img.vietqr.io/image/MB-0363132364-compact2.png?amount=${Math.max(0, Math.round(total))}&addInfo=${encodeURIComponent("BADMINTONHUB VNPAY")}&accountName=${encodeURIComponent("CONG TY TNHH BADMINTONHUB")}`
+  const momoQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(`BADMINTONHUB|MOMO|${Math.max(0, Math.round(total))}`)}`
 
   const validate = () => {
     const newErrors: Record<string, string> = {}
@@ -100,15 +102,24 @@ export default function CheckoutPage() {
         : address.trim()
 
       const result = await orderApi.create({
+        type: "online",
+        delivery_method: deliveryMethod,
+        pickup_branch_id: deliveryMethod === "pickup" ? pickupBranch : undefined,
+        customer_coords: deliveryMethod === "delivery" ? customerCoords || undefined : undefined,
         customer_name: fullName.trim(),
         customer_phone: phone.trim(),
         customer_email: email.trim(),
+        customer_address: shippingAddr,
         shipping_address: shippingAddr,
         payment_method: paymentMethod,
         note: note.trim() || undefined,
+        subtotal,
+        shipping_fee: shippingFee,
+        total,
         items: cart.map(item => ({
           product_id: item.productId,
-          quantity: item.qty,
+          product_name: item.name,
+          qty: item.qty,
           price: item.price,
         })),
       })
@@ -351,9 +362,45 @@ export default function CheckoutPage() {
                   {paymentMethod === "bank" && (
                     <div className="mt-4 p-4 rounded-lg bg-muted text-sm space-y-1">
                       <p className="font-semibold">Thông tin chuyển khoản:</p>
-                      <p>Ngân hàng: Vietcombank</p>
-                      <p>STK: 1234567890</p>
+                      <p>Ngân hàng: MB Bank</p>
+                      <p>STK: 0363132364</p>
                       <p>Chủ TK: CÔNG TY TNHH BADMINTONHUB</p>
+                    </div>
+                  )}
+
+                  {paymentMethod === "vnpay" && (
+                    <div className="mt-4 p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-3">
+                      <p className="font-semibold">Quét mã QR VNPay để thanh toán</p>
+                      <div className="flex justify-center">
+                        <img
+                          src={vnpayQrUrl}
+                          alt="QR thanh toán VNPay"
+                          className="h-56 w-56 rounded-lg border bg-white p-2"
+                        />
+                      </div>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Ngân hàng: MB Bank</p>
+                        <p>STK: 0363132364</p>
+                        <p>Số tiền: {formatVND(total)}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === "momo" && (
+                    <div className="mt-4 p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-3">
+                      <p className="font-semibold">Quét mã QR MoMo để thanh toán</p>
+                      <div className="flex justify-center">
+                        <img
+                          src={momoQrUrl}
+                          alt="QR thanh toán MoMo"
+                          className="h-56 w-56 rounded-lg border bg-white p-2"
+                        />
+                      </div>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Ví: MoMo</p>
+                        <p>Nội dung: BADMINTONHUB MOMO</p>
+                        <p>Số tiền: {formatVND(total)}</p>
+                      </div>
                     </div>
                   )}
                 </CardContent>

@@ -172,10 +172,12 @@ export default function TomTomMap({ lat, lng, courtLat, courtLng, courtName, rou
     })
     mapRef.current = map
 
-    userMarkerRef.current = new maplibregl.Marker({ element: createUserMarkerEl(), anchor: "bottom" })
-      .setLngLat([lng, lat])
-      .setPopup(new maplibregl.Popup({ offset: 30 }).setHTML("<strong>📍 Vị trí của bạn</strong>"))
-      .addTo(map)
+    if (!hideUserMarker) {
+      userMarkerRef.current = new maplibregl.Marker({ element: createUserMarkerEl(), anchor: "bottom" })
+        .setLngLat([lng, lat])
+        .setPopup(new maplibregl.Popup({ offset: 30 }).setHTML("<strong>📍 Vị trí của bạn</strong>"))
+        .addTo(map)
+    }
 
     map.on("load", () => {
       mapLoadedRef.current = true

@@ -50,18 +50,51 @@ const Inventory = {
     try {
       await client.query('BEGIN');
 
-      // Cập nhật on_hand (trigger tự tính available)
-      await client.query(
-        `UPDATE inventory SET on_hand = on_hand + $1 WHERE sku = $2 AND warehouse_id = $3`,
-        [qty, sku, warehouseId]
+      const parsedQty = Number(qty);
+      if (!Number.isFinite(parsedQty) || parsedQty < 0) {
+        throw { statusCode: 400, message: 'Số lượng nhập kho phải >= 0' };
+      }
+
+      const parsedCost = Number(cost || 0);
+      const finalCost = Number.isFinite(parsedCost) ? parsedCost : 0;
+
+      const existing = await client.query(
+        `SELECT id FROM inventory WHERE sku = $1 AND warehouse_id = $2`,
+        [sku, warehouseId]
       );
 
+      if (existing.rows.length === 0) {
+        const productResult = await client.query(
+          `SELECT id, name, category, price FROM products WHERE sku = $1`,
+          [sku]
+        );
+
+        if (productResult.rows.length === 0) {
+          throw { statusCode: 404, message: 'SKU chưa tồn tại trong danh mục sản phẩm' };
+        }
+
+        const product = productResult.rows[0];
+        await client.query(
+          `INSERT INTO inventory (sku, product_id, warehouse_id, name, category, on_hand, reserved, reorder_point, unit_cost)
+           VALUES ($1, $2, $3, $4, $5, $6, 0, 0, $7)`,
+          [sku, product.id, warehouseId, product.name, product.category, parsedQty, finalCost || product.price || 0]
+        );
+      } else if (parsedQty > 0) {
+        // Cập nhật on_hand (trigger tự tính available)
+        await client.query(
+          `UPDATE inventory SET on_hand = on_hand + $1 WHERE sku = $2 AND warehouse_id = $3`,
+          [parsedQty, sku, warehouseId]
+        );
+      }
+
       // Ghi log giao dịch
-      await client.query(
-        `INSERT INTO inventory_transactions (type, date, sku, warehouse_id, qty, cost, note, operator)
-         VALUES ('import', NOW(), $1, $2, $3, $4, $5, $6)`,
-        [sku, warehouseId, qty, cost, note, operator]
-      );
+      if (parsedQty > 0) {
+        await client.query(
+          `INSERT INTO inventory_transactions (type, date, sku, warehouse_id, qty, cost, note, operator)
+           VALUES ('import', NOW(), $1, $2, $3, $4, $5, $6)`,
+          [sku, warehouseId, parsedQty, finalCost, note, operator]
+        );
+      }
 
       await client.query('COMMIT');
     } catch (err) {

@@ -44,11 +44,19 @@ interface TransferPlan {
   unitCost: number
 }
 
+function isHubWarehouse(name?: string) {
+  return /hub/i.test(String(name || ""))
+}
+
 export default function HubBalancePage() {
   const { user } = useAuth()
   const ctx = useInventory()
   const { inventory, createTransfer, exportTransferItems, warehouses } = ctx
   const BRANCH_WAREHOUSES = useMemo(() => warehouses.filter(w => !w.isHub).map(w => w.name), [warehouses])
+  const hubWarehouseName = useMemo(
+    () => warehouses.find((w) => w.isHub || isHubWarehouse(w.name))?.name || "Kho Hub",
+    [warehouses]
+  )
 
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
@@ -77,7 +85,7 @@ export default function HubBalancePage() {
     // Get all unique SKUs
     const skuMap = new Map<string, BalanceItem>()
 
-    const hubItems = inventory.filter(i => i.warehouse === "Kho Hub")
+    const hubItems = inventory.filter(i => isHubWarehouse(i.warehouse))
     for (const hubItem of hubItems) {
       const branches = BRANCH_WAREHOUSES.map(wh => {
         const branchItem = inventory.find(i => i.sku === hubItem.sku && i.warehouse === wh)
@@ -120,7 +128,7 @@ export default function HubBalancePage() {
     }
 
     return Array.from(skuMap.values())
-  }, [inventory])
+  }, [inventory, BRANCH_WAREHOUSES])
 
   // Filter
   const filtered = balanceData.filter(item => {
@@ -192,41 +200,46 @@ export default function HubBalancePage() {
     const today = new Date().toISOString().split("T")[0]
 
     // Create one transfer request per target warehouse
-    for (const [toWarehouse, items] of grouped) {
-      const transferId = await createTransfer({
-        date: today,
-        fromWarehouse: "Kho Hub",
-        toWarehouse,
-        items: items.map(i => ({
-          sku: i.sku,
-          name: i.name,
-          qty: i.qty,
-          available: balanceData.find(d => d.sku === i.sku)?.hubAvailable || 0,
-        })),
-        reason: "Cân bằng tồn kho tự động từ Hub",
-        note: balanceNote || "Cân bằng tồn kho — NV Hub tạo phiếu tự động",
-        status: "pending",
-        pickupMethod: "delivery",
-        createdBy: user?.fullName || "NV Hub",
-      })
+    try {
+      for (const [toWarehouse, items] of grouped) {
+        const transferId = await createTransfer({
+          date: today,
+          fromWarehouse: hubWarehouseName,
+          toWarehouse,
+          items: items.map(i => ({
+            sku: i.sku,
+            name: i.name,
+            qty: i.qty,
+            available: balanceData.find(d => d.sku === i.sku)?.hubAvailable || 0,
+          })),
+          reason: "Cân bằng tồn kho tự động từ Hub",
+          note: balanceNote || "Cân bằng tồn kho — NV Hub tạo phiếu tự động",
+          status: "pending",
+          pickupMethod: "delivery",
+          createdBy: user?.fullName || "NV Hub",
+        })
 
-      // Auto-export from Hub (since Hub employee is the source)
-      const qtys: Record<string, number> = {}
-      for (const item of items) {
-        qtys[item.sku] = item.qty
+        if (!transferId) throw new Error("Tạo phiếu điều chuyển thất bại")
+
+        const qtys: Record<string, number> = {}
+        for (const item of items) {
+          qtys[item.sku] = item.qty
+        }
+        await exportTransferItems({
+          transferId,
+          qtys,
+          date: today,
+          note: balanceNote || "Xuất cân bằng tồn kho từ Hub",
+          operator: user?.fullName || "NV Hub",
+        })
       }
-      exportTransferItems({
-        transferId,
-        qtys,
-        date: today,
-        note: balanceNote || "Xuất cân bằng tồn kho từ Hub",
-        operator: user?.fullName || "NV Hub",
-      })
-    }
 
-    setBalanceSuccess(true)
-    setBalanceOpen(false)
-    setTimeout(() => setBalanceSuccess(false), 5000)
+      setBalanceSuccess(true)
+      setBalanceOpen(false)
+      setTimeout(() => setBalanceSuccess(false), 5000)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Cân bằng tồn kho thất bại")
+    }
   }
 
   // Manual single transfer
@@ -237,38 +250,44 @@ export default function HubBalancePage() {
     if (!item || item.hubAvailable < manualQty) return
 
     const today = new Date().toISOString().split("T")[0]
-    const transferId = await createTransfer({
-      date: today,
-      fromWarehouse: "Kho Hub",
-      toWarehouse: manualWarehouse,
-      items: [{
-        sku: manualSku,
-        name: item.name,
-        qty: manualQty,
-        available: item.hubAvailable,
-      }],
-      reason: "Điều chuyển thủ công từ Hub",
-      note: manualNote || `NV Hub xuất ${manualQty} ${item.name} → ${manualWarehouse}`,
-      status: "pending",
-      pickupMethod: "delivery",
-      createdBy: user?.fullName || "NV Hub",
-    })
+    try {
+      const transferId = await createTransfer({
+        date: today,
+        fromWarehouse: hubWarehouseName,
+        toWarehouse: manualWarehouse,
+        items: [{
+          sku: manualSku,
+          name: item.name,
+          qty: manualQty,
+          available: item.hubAvailable,
+        }],
+        reason: "Điều chuyển thủ công từ Hub",
+        note: manualNote || `NV Hub xuất ${manualQty} ${item.name} → ${manualWarehouse}`,
+        status: "pending",
+        pickupMethod: "delivery",
+        createdBy: user?.fullName || "NV Hub",
+      })
 
-    exportTransferItems({
-      transferId,
-      qtys: { [manualSku]: manualQty },
-      date: today,
-      note: manualNote || `Xuất điều chuyển ${item.name} → ${manualWarehouse}`,
-      operator: user?.fullName || "NV Hub",
-    })
+      if (!transferId) throw new Error("Tạo phiếu điều chuyển thất bại")
 
-    setManualSuccess(true)
-    setManualOpen(false)
-    setManualSku("")
-    setManualWarehouse("")
-    setManualQty(0)
-    setManualNote("")
-    setTimeout(() => setManualSuccess(false), 5000)
+      await exportTransferItems({
+        transferId,
+        qtys: { [manualSku]: manualQty },
+        date: today,
+        note: manualNote || `Xuất điều chuyển ${item.name} → ${manualWarehouse}`,
+        operator: user?.fullName || "NV Hub",
+      })
+
+      setManualSuccess(true)
+      setManualOpen(false)
+      setManualSku("")
+      setManualWarehouse("")
+      setManualQty(0)
+      setManualNote("")
+      setTimeout(() => setManualSuccess(false), 5000)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Điều chuyển thất bại")
+    }
   }
 
   const openManualFromSku = (sku: string) => {

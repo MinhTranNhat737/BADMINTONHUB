@@ -139,6 +139,8 @@ export default function BookingPage() {
   const racketPrice = racketRental ? 50000 : 0
   const discountAmount = discountApplied ? Math.floor(booking.totalPrice * 0.1) : 0
   const total = booking.totalPrice + racketPrice - discountAmount
+  const vnpayQrUrl = `https://img.vietqr.io/image/MB-0363132364-compact2.png?amount=${Math.max(0, Math.round(total))}&addInfo=${encodeURIComponent(`BOOKING ${booking.courtName} VNPAY`)}&accountName=${encodeURIComponent("CONG TY TNHH BADMINTONHUB")}`
+  const momoQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(`BADMINTONHUB|MOMO|${Math.max(0, Math.round(total))}|${booking.courtName}`)}`
 
   const validateStep1 = () => {
     const newErrors: Record<string, string> = {}
@@ -557,14 +559,50 @@ export default function BookingPage() {
                       {paymentMethod === 'bank' && (
                         <div className="mt-4 p-4 rounded-lg bg-muted text-sm space-y-1">
                           <p className="font-semibold">Thông tin chuyển khoản:</p>
-                          <p>Ngân hàng: Vietcombank</p>
-                          <p>STK: 1234567890</p>
+                          <p>Ngân hàng: MB Bank</p>
+                          <p>STK: 0363132364</p>
                           <p>Chủ TK: CÔNG TY TNHH BADMINTONHUB</p>
                           <p>Nội dung: <span className="font-mono font-bold text-primary">Đặt sân {booking.courtName}</span></p>
                           <div className="mt-3 p-3 rounded-md bg-amber-50 border border-amber-200">
                             <p className="text-xs text-amber-800">
                               <strong>Lưu ý:</strong> Sau khi chuyển khoản, vui lòng thông báo cho nhân viên để xác nhận thanh toán.
                             </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {paymentMethod === 'vnpay' && (
+                        <div className="mt-4 p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-3">
+                          <p className="font-semibold">Quét mã QR VNPay để thanh toán</p>
+                          <div className="flex justify-center">
+                            <img
+                              src={vnpayQrUrl}
+                              alt="QR thanh toán VNPay"
+                              className="h-44 w-44 rounded-lg border bg-white p-2"
+                            />
+                          </div>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <p>Ngân hàng: MB Bank</p>
+                            <p>STK: 0363132364</p>
+                            <p>Số tiền: {formatVND(total)}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {paymentMethod === 'momo' && (
+                        <div className="mt-4 p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-3">
+                          <p className="font-semibold">Quét mã QR MoMo để thanh toán</p>
+                          <div className="flex justify-center">
+                            <img
+                              src={momoQrUrl}
+                              alt="QR thanh toán MoMo"
+                              className="h-44 w-44 rounded-lg border bg-white p-2"
+                            />
+                          </div>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <p>Ví: MoMo</p>
+                            <p>Nội dung: Đặt sân {booking.courtName}</p>
+                            <p>Số tiền: {formatVND(total)}</p>
                           </div>
                         </div>
                       )}

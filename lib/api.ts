@@ -116,6 +116,7 @@ export interface ApiProduct {
   inStock: boolean
   gender: string | null
   badges: string[]
+  supplierName?: string | null
 }
 
 export interface ApiUser {
@@ -162,9 +163,16 @@ export interface ApiOrder {
   customerEmail: string | null
   shippingAddress: string
   amount: number
+  totalAmount?: number
+  subtotal?: number
+  shippingFee?: number
   status: string
   paymentMethod: string | null
   note: string | null
+  type?: string
+  deliveryMethod?: string | null
+  fulfillingWarehouse?: string
+  customerCoords?: unknown
   items: ApiOrderItem[]
   createdAt: string
 }
@@ -177,7 +185,41 @@ export interface ApiOrderItem {
   price: number
 }
 
+export interface ApiSalesCustomer {
+  id: string | null
+  userCode: string
+  username: string
+  fullName: string
+  email: string
+  phone: string
+  role: 'user' | 'admin' | 'employee' | 'guest'
+}
+
 // ─── Transform helpers (snake_case → camelCase) ─────────────
+
+function extractProductMeta(description?: string | null) {
+  const raw = String(description || '')
+  const segments = raw
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  let supplierName: string | null = null
+  const cleanSegments: string[] = []
+
+  for (const segment of segments) {
+    if (segment.startsWith('NCC:')) {
+      supplierName = segment.slice(4).trim() || null
+      continue
+    }
+    cleanSegments.push(segment)
+  }
+
+  return {
+    supplierName,
+    cleanDescription: cleanSegments.join(' | '),
+  }
+}
 
 function transformCourt(raw: any): ApiCourt {
   return {
@@ -202,6 +244,8 @@ function transformCourt(raw: any): ApiCourt {
 }
 
 function transformProduct(raw: any): ApiProduct {
+  const meta = extractProductMeta(raw.description)
+
   return {
     id: raw.id,
     sku: raw.sku,
@@ -213,12 +257,13 @@ function transformProduct(raw: any): ApiProduct {
     rating: parseFloat(raw.rating) || 0,
     reviews: raw.reviews_count || 0,
     image: raw.image,
-    description: raw.description || '',
+    description: meta.cleanDescription,
     specs: raw.specs || {},
     features: raw.features || [],
     inStock: raw.in_stock,
     gender: raw.gender,
     badges: raw.badges || [],
+    supplierName: raw.supplier_name ?? meta.supplierName,
   }
 }
 
@@ -241,20 +286,38 @@ function transformUser(raw: any): ApiUser {
 }
 
 function transformBooking(raw: any): ApiBooking {
+  const customerName =
+    raw.customer_name ||
+    raw.customerName ||
+    raw.booked_by ||
+    raw.bookedBy ||
+    raw.full_name ||
+    raw.fullName ||
+    raw.customer?.name ||
+    raw.customer?.fullName ||
+    ''
+
+  const customerPhone =
+    raw.customer_phone ||
+    raw.customerPhone ||
+    raw.phone ||
+    raw.customer?.phone ||
+    ''
+
   return {
     id: raw.id,
-    bookingCode: raw.booking_code || '',
+    bookingCode: raw.booking_code || raw.bookingCode || raw.code || '',
     courtId: raw.court_id,
     courtName: raw.court_name || '',
     branchName: raw.branch_name || '',
     userId: raw.user_id,
-    customerName: raw.customer_name,
-    customerPhone: raw.customer_phone,
+    customerName: customerName || 'Khách',
+    customerPhone,
     bookingDate: raw.booking_date,
     timeStart: raw.time_start,
     timeEnd: raw.time_end,
-    slots: raw.slots,
-    amount: parseFloat(raw.amount),
+    slots: raw.slots ?? raw.people ?? 1,
+    amount: parseFloat(raw.amount ?? raw.total_amount ?? 0),
     status: raw.status,
     paymentMethod: raw.payment_method,
     note: raw.note,
@@ -263,25 +326,53 @@ function transformBooking(raw: any): ApiBooking {
 }
 
 function transformOrder(raw: any): ApiOrder {
+  const parseNumber = (value: any, fallback = 0) => {
+    const num = Number(value)
+    return Number.isFinite(num) ? num : fallback
+  }
+
+  const totalAmount = parseNumber(raw.total ?? raw.total_amount ?? raw.amount, 0)
+  const shippingFee = parseNumber(raw.shipping_fee ?? raw.shippingFee, 0)
+  const subtotal = parseNumber(raw.subtotal ?? raw.sub_total, Math.max(totalAmount - shippingFee, 0))
+
   return {
     id: raw.id,
-    userId: raw.user_id,
-    customerName: raw.customer_name,
-    customerPhone: raw.customer_phone,
-    customerEmail: raw.customer_email,
-    shippingAddress: raw.shipping_address,
-    amount: parseFloat(raw.amount),
-    status: raw.status,
-    paymentMethod: raw.payment_method,
-    note: raw.note,
+    userId: raw.user_id ?? raw.userId ?? null,
+    customerName: raw.customer_name ?? raw.customerName ?? '',
+    customerPhone: raw.customer_phone ?? raw.customerPhone ?? '',
+    customerEmail: raw.customer_email ?? raw.customerEmail ?? null,
+    shippingAddress: raw.shipping_address ?? raw.customer_address ?? raw.shippingAddress ?? raw.customerAddress ?? '',
+    amount: totalAmount,
+    totalAmount,
+    subtotal,
+    shippingFee,
+    status: raw.status ?? 'pending',
+    paymentMethod: raw.payment_method ?? raw.paymentMethod ?? null,
+    note: raw.note ?? null,
+    type: raw.type ?? 'online',
+    deliveryMethod: raw.delivery_method ?? raw.deliveryMethod ?? null,
+    fulfillingWarehouse: raw.fulfilling_warehouse ?? raw.fulfillingWarehouse ?? '',
+    customerCoords: raw.customer_coords ?? raw.customerCoords ?? null,
     items: (raw.items || []).map((item: any) => ({
-      productId: item.product_id,
-      productName: item.product_name || item.name,
+      productId: item.product_id ?? item.productId,
+      productName: item.product_name || item.productName || item.name,
       sku: item.sku,
-      quantity: item.quantity,
-      price: parseFloat(item.price),
+      quantity: item.quantity ?? item.qty,
+      price: parseNumber(item.price, 0),
     })),
-    createdAt: raw.created_at,
+    createdAt: raw.created_at ?? raw.createdAt ?? '',
+  }
+}
+
+function transformSalesCustomer(raw: any): ApiSalesCustomer {
+  return {
+    id: raw.id || null,
+    userCode: raw.user_code || '',
+    username: raw.username || '',
+    fullName: raw.full_name || '',
+    email: raw.email || '',
+    phone: raw.phone || '',
+    role: raw.role || 'guest',
   }
 }
 
@@ -476,6 +567,83 @@ export const productApi = {
     if (res.success && res.data) return res.data
     return []
   },
+
+  create: async (data: {
+    sku?: string
+    name: string
+    brand: string
+    category: string
+    price: number
+    original_price?: number | null
+    image?: string | null
+    description?: string
+    specs?: Record<string, string>
+    features?: string[]
+    in_stock?: boolean
+    gender?: string | null
+    badges?: string[]
+  }) => {
+    const res = await apiFetch<any>('/products', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+
+    if (res.success && res.data) {
+      return { success: true, product: transformProduct(res.data) }
+    }
+    return { success: false, error: res.message || 'Không thể tạo sản phẩm' }
+  },
+
+  uploadImage: async (file: File) => {
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+
+      const res = await apiClient.post('/products/upload-image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      if (res.data?.success && res.data?.data?.url) {
+        return { success: true, url: String(res.data.data.url) }
+      }
+
+      return { success: false, error: res.data?.message || 'Không thể tải ảnh' }
+    } catch (err: any) {
+      return { success: false, error: err.response?.data?.message || 'Không thể tải ảnh' }
+    }
+  },
+
+  update: async (id: number, data: {
+    name?: string
+    brand?: string
+    category?: string
+    price?: number
+    original_price?: number | null
+    image?: string | null
+    description?: string
+    specs?: Record<string, string>
+    features?: string[]
+    in_stock?: boolean
+    gender?: string | null
+  }) => {
+    const res = await apiFetch<any>(`/products/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+
+    if (res.success && res.data) {
+      return { success: true, product: transformProduct(res.data) }
+    }
+    return { success: false, error: res.message || 'Không thể cập nhật sản phẩm' }
+  },
+
+  delete: async (id: number) => {
+    const res = await apiFetch<any>(`/products/${id}`, {
+      method: 'DELETE',
+    })
+
+    return { success: res.success, error: res.message }
+  },
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -637,14 +805,57 @@ export const orderApi = {
   },
 
   create: async (data: {
-    customer_name: string; customer_phone: string;
-    customer_email?: string; shipping_address: string;
-    payment_method?: string; note?: string;
-    items: { product_id: number; quantity: number; price: number }[]
+    type?: 'online' | 'pos'
+    delivery_method?: 'delivery' | 'pickup'
+    deliveryMethod?: 'delivery' | 'pickup'
+    pickup_branch_id?: number
+    pickupBranchId?: number
+    customer_coords?: unknown
+    customerCoords?: unknown
+    customer_name: string
+    customer_phone: string
+    customer_email?: string
+    customer_address?: string
+    shipping_address?: string
+    payment_method?: string
+    note?: string
+    subtotal?: number
+    shipping_fee?: number
+    shippingFee?: number
+    total?: number
+    items: { product_id: number; product_name?: string; name?: string; qty?: number; quantity?: number; price: number }[]
   }) => {
+    const mappedItems = (data.items || []).map((item) => ({
+      product_id: item.product_id,
+      product_name: item.product_name || item.name || '',
+      qty: item.qty ?? item.quantity ?? 0,
+      price: item.price,
+    }))
+
+    const computedSubtotal = data.subtotal ?? mappedItems.reduce((sum, item) => sum + item.price * item.qty, 0)
+    const computedShippingFee = data.shipping_fee ?? data.shippingFee ?? 0
+    const computedTotal = data.total ?? (computedSubtotal + computedShippingFee)
+
+    const payload = {
+      type: data.type || 'online',
+      delivery_method: data.delivery_method || data.deliveryMethod || 'delivery',
+      pickup_branch_id: data.pickup_branch_id ?? data.pickupBranchId,
+      customer_coords: data.customer_coords ?? data.customerCoords,
+      customer_name: data.customer_name,
+      customer_phone: data.customer_phone,
+      customer_email: data.customer_email,
+      customer_address: data.customer_address ?? data.shipping_address,
+      payment_method: data.payment_method || 'cod',
+      note: data.note,
+      subtotal: computedSubtotal,
+      shipping_fee: computedShippingFee,
+      total: computedTotal,
+      items: mappedItems,
+    }
+
     const res = await apiFetch<any>('/orders', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     })
     if (res.success && res.data) {
       return { success: true, order: transformOrder(res.data) }
@@ -694,7 +905,7 @@ export const inventoryApi = {
   },
 
   importStock: async (data: {
-    warehouse_id: number; sku: string; quantity: number; note?: string
+    warehouse_id: number; sku: string; quantity: number; cost?: number; note?: string
   }) => {
     return apiFetch('/inventory/import', {
       method: 'POST',
@@ -702,6 +913,7 @@ export const inventoryApi = {
         sku: data.sku,
         warehouseId: data.warehouse_id,
         qty: data.quantity,
+        cost: data.cost,
         note: data.note,
       }),
     })
@@ -740,7 +952,9 @@ export const transferApi = {
 
   create: async (data: {
     from_warehouse_id: number; to_warehouse_id: number;
-    note?: string; items: { sku: string; quantity: number }[]
+    reason?: string; note?: string; pickup_method?: "employee" | "delivery" | "customer";
+    customer_name?: string; customer_phone?: string;
+    items: { sku: string; name?: string; qty: number; available_at_request?: number }[]
   }) => {
     return apiFetch('/transfers', {
       method: 'POST',
@@ -806,25 +1020,81 @@ export const salesOrderApi = {
 
   getById: async (id: string) => apiFetch(`/sales-orders/${id}`),
 
-  create: async (data: {
-    branch_id: number; customer_name?: string; customer_phone?: string;
-    note?: string; items: { sku: string; quantity: number; price: number }[]
-  }) => {
-    return apiFetch('/sales-orders', {
+  searchCustomers: async (search: string): Promise<ApiSalesCustomer[]> => {
+    const params = new URLSearchParams()
+    params.set('search', search)
+    const res = await apiFetch<any[]>(`/sales-orders/customers?${params.toString()}`)
+    if (res.success && res.data) return res.data.map(transformSalesCustomer)
+    return []
+  },
+
+  createWalkInAccount: async (data: { full_name: string; phone: string; create_account?: boolean }) => {
+    const res = await apiFetch<any>('/sales-orders/customers/walk-in-account', {
       method: 'POST',
       body: JSON.stringify(data),
     })
+
+    if (res.success && res.data) {
+      return {
+        success: true,
+        user: transformSalesCustomer(res.data.user || {}),
+        credentials: res.data.credentials || null,
+        existed: !!res.data.existed,
+        message: res.message,
+      }
+    }
+
+    return { success: false, error: res.message || 'Không thể cấp tài khoản khách lẻ' }
   },
 
-  approve: async (id: string) => {
-    return apiFetch(`/sales-orders/${id}/approve`, { method: 'PATCH' })
+  create: async (data: {
+    branch_id: number; customer_name?: string; customer_phone?: string;
+    total?: number; discount?: number; final_total?: number;
+    payment_method?: string; note?: string;
+    items: { product_id?: number; product_name?: string; sku?: string; quantity?: number; qty?: number; price: number }[]
+  }) => {
+    const mappedItems = data.items.map(i => ({
+      product_id: typeof i.product_id === 'number' && i.product_id > 0 ? i.product_id : null,
+      product_name: i.product_name || i.sku || '',
+      price: i.price,
+      qty: i.qty || i.quantity || 0,
+    }))
+    const total = data.total || mappedItems.reduce((sum, item) => sum + item.price * item.qty, 0)
+    const discount = data.discount || 0
+    const finalTotal = data.final_total || (total - discount)
+
+    return apiFetch('/sales-orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        branch_id: data.branch_id,
+        customer_name: data.customer_name,
+        customer_phone: data.customer_phone,
+        total,
+        discount,
+        final_total: finalTotal,
+        payment_method: data.payment_method,
+        note: data.note,
+        items: mappedItems,
+      }),
+    })
+  },
+
+  approve: async (id: string, payload?: { payment_method?: string; note?: string }) => {
+    return apiFetch(`/sales-orders/${id}/approve`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload || {}),
+    })
   },
 
   reject: async (id: string, reason?: string) => {
     return apiFetch(`/sales-orders/${id}/reject`, {
       method: 'PATCH',
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reject_reason: reason }),
     })
+  },
+
+  complete: async (id: string) => {
+    return apiFetch(`/sales-orders/${id}/complete`, { method: 'PATCH' })
   },
 }
 

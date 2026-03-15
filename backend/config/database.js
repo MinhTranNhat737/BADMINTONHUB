@@ -5,17 +5,26 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const pool = new Pool({
-  host:     process.env.DB_HOST || 'localhost',
-  port:     parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'BADMINTONHUB',
-  user:     process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '18112003',
+const poolConfig = {
   // Connection pool settings
   max: 20,                    // Tối đa 20 connections
   idleTimeoutMillis: 30000,   // Đóng connection idle sau 30s
   connectionTimeoutMillis: 5000, // Timeout kết nối 5s
-});
+};
+
+if (process.env.DATABASE_URL) {
+  poolConfig.connectionString = process.env.DATABASE_URL;
+  // Cloud Postgres (DigitalOcean/Render/Neon/...) thường yêu cầu SSL
+  poolConfig.ssl = process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false };
+} else {
+  poolConfig.host = process.env.DB_HOST || 'localhost';
+  poolConfig.port = parseInt(process.env.DB_PORT, 10) || 5432;
+  poolConfig.database = process.env.DB_NAME || 'BADMINTONHUB';
+  poolConfig.user = process.env.DB_USER || 'postgres';
+  poolConfig.password = process.env.DB_PASSWORD || '';
+}
+
+const pool = new Pool(poolConfig);
 
 // Log khi kết nối thành công
 pool.on('connect', () => {
@@ -37,15 +46,24 @@ const getClient = () => pool.connect();
 const testConnection = async () => {
   try {
     console.log('🔌 Đang kết nối tới PostgreSQL...');
-    console.log(`   Host: ${process.env.DB_HOST}:${process.env.DB_PORT}`);
-    console.log(`   Database: ${process.env.DB_NAME}`);
-    console.log(`   User: ${process.env.DB_USER}`);
+    if (process.env.DATABASE_URL) {
+      console.log('   Using: DATABASE_URL');
+      console.log(`   SSL: ${process.env.DB_SSL === 'false' ? 'disabled' : 'enabled'}`);
+    } else {
+      console.log(`   Host: ${process.env.DB_HOST}:${process.env.DB_PORT}`);
+      console.log(`   Database: ${process.env.DB_NAME}`);
+      console.log(`   User: ${process.env.DB_USER}`);
+    }
     const res = await pool.query('SELECT NOW() AS current_time');
     console.log('✅ Database time:', res.rows[0].current_time);
     return true;
   } catch (err) {
     console.error('❌ Không thể kết nối database:', err.code, err.message);
-    console.error('   Chi tiết:', JSON.stringify({ host: process.env.DB_HOST, port: process.env.DB_PORT, db: process.env.DB_NAME, user: process.env.DB_USER }));
+    if (process.env.DATABASE_URL) {
+      console.error('   Chi tiết: kiểm tra DATABASE_URL / DB_SSL');
+    } else {
+      console.error('   Chi tiết:', JSON.stringify({ host: process.env.DB_HOST, port: process.env.DB_PORT, db: process.env.DB_NAME, user: process.env.DB_USER }));
+    }
     return false;
   }
 };

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useMemo, Fragment } from "react"
+import { useState, useCallback, useEffect, useMemo, Fragment, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -41,7 +41,7 @@ interface BookingHistoryEntry {
 
 interface CourtBookingEntry {
   courtId: number; dateLabel: string; time: string
-  status: 'booked' | 'hold'; bookedBy?: string; bookingId?: string; phone?: string
+  status: 'booked' | 'hold'; bookedBy?: string; bookingId?: string; bookingCode?: string; phone?: string
 }
 
 interface BranchItem { id: number; name: string; address?: string }
@@ -50,13 +50,15 @@ interface CourtItem { id: number; name: string; branch: string; branchId: number
 /* ─── Helpers ─── */
 
 function apiToBooking(b: ApiBooking): BookingHistoryEntry {
+  const customerName = b.customerName?.trim() || "Khách"
+  const customerPhone = b.customerPhone?.trim() || ""
   return {
     id: b.id, bookingCode: b.bookingCode || b.id, court: b.courtName, branch: b.branchName,
     date: b.bookingDate, day: "",
     time: `${b.timeStart} - ${b.timeEnd}`,
     people: b.slots || 2, amount: b.amount, status: b.status,
     paymentMethod: b.paymentMethod || "Cash",
-    customer: { name: b.customerName, phone: b.customerPhone, email: "" },
+    customer: { name: customerName, phone: customerPhone, email: "" },
     createdAt: b.createdAt, courtId: b.courtId, note: b.note || "",
   }
 }
@@ -70,13 +72,14 @@ function bookingsToSlots(bookings: BookingHistoryEntry[]): CourtBookingEntry[] {
     const start = parseInt(parts[0].split(":")[0])
     const end = parseInt(parts[1].split(":")[0])
     const d = new Date(b.date)
-    const dateLabel = `${d.getDate()}/${d.getMonth() + 1}`
+    const dateLabel = formatDateShort(d)
+    const bookedByLabel = b.customer.name?.trim() || b.customer.phone?.trim() || b.bookingCode || b.id
     for (let h = start; h < end; h++) {
       slots.push({
         courtId: b.courtId, dateLabel,
         time: `${h.toString().padStart(2, '0')}:00`,
-        status: "booked", bookedBy: b.customer.name,
-        bookingId: b.id, phone: b.customer.phone,
+        status: b.status === "hold" ? "hold" : "booked", bookedBy: bookedByLabel,
+        bookingId: b.id, bookingCode: b.bookingCode || b.id, phone: b.customer.phone,
       })
     }
   }
@@ -636,7 +639,7 @@ function ScheduleView({
 
   // Quick-book dialog state
   const [quickBookOpen, setQuickBookOpen] = useState(false)
-  const [quickBookSlot, setQuickBookSlot] = useState<{ courtId: number; courtName: string; time: string; timeEnd: string; price: number } | null>(null)
+  const [quickBookSlot, setQuickBookSlot] = useState<{ courtId: number; courtName: string; time: string; timeEnd: string; price: number; durationHours: number; totalPrice: number } | null>(null)
   const [qbName, setQbName] = useState("")
   const [qbPhone, setQbPhone] = useState("")
   const [qbPayment, setQbPayment] = useState("cash")
@@ -644,27 +647,50 @@ function ScheduleView({
   const [qbRecurring, setQbRecurring] = useState(false)
   const [qbWeeks, setQbWeeks] = useState("4")
   const [qbSaving, setQbSaving] = useState(false)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectionStart, setSelectionStart] = useState<{ courtId: number; time: string } | null>(null)
+  const [selectionEnd, setSelectionEnd] = useState<{ courtId: number; time: string } | null>(null)
 
   // User account picker state
   const [qbUserSearch, setQbUserSearch] = useState("")
   const [qbUserResults, setQbUserResults] = useState<ApiUser[]>([])
   const [qbSelectedUser, setQbSelectedUser] = useState<ApiUser | null>(null)
   const [qbUserLoading, setQbUserLoading] = useState(false)
+  const qbUserSearchCacheRef = useRef<Map<string, ApiUser[]>>(new Map())
+  const qbUserSearchReqRef = useRef(0)
 
   // Debounced user search
   useEffect(() => {
-    if (!qbUserSearch.trim() || qbUserSearch.trim().length < 2) {
+    const keyword = qbUserSearch.trim().toLowerCase()
+    if (!keyword || keyword.length < 2) {
       setQbUserResults([])
+      setQbUserLoading(false)
       return
     }
+
+    const cached = qbUserSearchCacheRef.current.get(keyword)
+    if (cached) {
+      setQbUserResults(cached)
+      setQbUserLoading(false)
+      return
+    }
+
     const timer = setTimeout(async () => {
+      const requestId = ++qbUserSearchReqRef.current
       setQbUserLoading(true)
       try {
-        const res = await userApi.getAll({ search: qbUserSearch.trim(), limit: 10, role: 'user' })
-        setQbUserResults(res.users || [])
+        const res = await userApi.getAll({ search: keyword, limit: 10, role: 'user' })
+        if (requestId !== qbUserSearchReqRef.current) return
+        const users = res.users || []
+        qbUserSearchCacheRef.current.set(keyword, users)
+        setQbUserResults(users)
       } catch { setQbUserResults([]) }
-      finally { setQbUserLoading(false) }
-    }, 400)
+      finally {
+        if (requestId === qbUserSearchReqRef.current) {
+          setQbUserLoading(false)
+        }
+      }
+    }, 300)
     return () => clearTimeout(timer)
   }, [qbUserSearch])
 
@@ -682,14 +708,14 @@ function ScheduleView({
   const timeSlots = generateTimeSlots()
 
   const scheduleMap = useMemo(() => {
-    const map: Record<number, Record<string, { status: string; bookedBy?: string; bookingId?: string }>> = {}
+    const map: Record<number, Record<string, { status: string; bookedBy?: string; bookingId?: string; bookingCode?: string; phone?: string }>> = {}
     branchCourts.forEach(c => {
       map[c.id] = {}
       timeSlots.forEach(t => { map[c.id][t] = { status: "available" } })
     })
     courtBookings.forEach(b => {
       if (map[b.courtId] && b.dateLabel === dateLabel) {
-        map[b.courtId][b.time] = { status: b.status, bookedBy: b.bookedBy, bookingId: b.bookingId }
+        map[b.courtId][b.time] = { status: b.status, bookedBy: b.bookedBy, bookingId: b.bookingId, bookingCode: b.bookingCode, phone: b.phone }
       }
     })
     return map
@@ -716,11 +742,55 @@ function ScheduleView({
     return { totalSlots, bookedSlots, holdSlots, freeSlots: totalSlots - bookedSlots - holdSlots }
   }, [branchCourts, scheduleMap])
 
-  // Click empty slot → open quick-book
-  const handleSlotClick = (court: CourtItem, time: string) => {
-    const endH = parseInt(time.split(":")[0]) + 1
+  const resetSelection = useCallback(() => {
+    setIsSelecting(false)
+    setSelectionStart(null)
+    setSelectionEnd(null)
+  }, [])
+
+  const getRangeSlots = useCallback((start: { courtId: number; time: string }, end: { courtId: number; time: string }) => {
+    if (start.courtId !== end.courtId) return [] as string[]
+    const startIdx = timeSlots.indexOf(start.time)
+    const endIdx = timeSlots.indexOf(end.time)
+    if (startIdx < 0 || endIdx < 0) return [] as string[]
+    const minIdx = Math.min(startIdx, endIdx)
+    const maxIdx = Math.max(startIdx, endIdx)
+    return timeSlots.slice(minIdx, maxIdx + 1)
+  }, [timeSlots])
+
+  const isSlotBookable = useCallback((courtId: number, time: string) => {
+    const cell = scheduleMap[courtId]?.[time]
+    const isUnavailable = cell?.status === "booked" || cell?.status === "hold"
+    return !isUnavailable && !isSlotPast(scheduleDate, time)
+  }, [scheduleMap, scheduleDate])
+
+  const selectionPreview = useMemo(() => {
+    if (!selectionStart || !selectionEnd || selectionStart.courtId !== selectionEnd.courtId) {
+      return { courtId: null as number | null, slots: [] as string[] }
+    }
+    const slots = getRangeSlots(selectionStart, selectionEnd)
+    if (slots.length === 0) return { courtId: null as number | null, slots: [] as string[] }
+    if (!slots.every((slot) => isSlotBookable(selectionStart.courtId, slot))) {
+      return { courtId: null as number | null, slots: [] as string[] }
+    }
+    return { courtId: selectionStart.courtId, slots }
+  }, [selectionStart, selectionEnd, getRangeSlots, isSlotBookable])
+
+  const selectedSlotSet = useMemo(() => new Set(selectionPreview.slots), [selectionPreview.slots])
+
+  const openQuickBookDialog = useCallback((court: CourtItem, startTime: string, durationHours: number) => {
+    const endH = parseInt(startTime.split(":")[0]) + durationHours
     const endTimeStr = `${endH.toString().padStart(2, '0')}:00`
-    setQuickBookSlot({ courtId: court.id, courtName: court.name, time, timeEnd: endTimeStr, price: court.price })
+    const totalPrice = court.price * durationHours
+    setQuickBookSlot({
+      courtId: court.id,
+      courtName: court.name,
+      time: startTime,
+      timeEnd: endTimeStr,
+      price: court.price,
+      durationHours,
+      totalPrice,
+    })
     setQbName("")
     setQbPhone("")
     setQbPayment("cash")
@@ -731,7 +801,35 @@ function ScheduleView({
     setQbUserSearch("")
     setQbUserResults([])
     setQuickBookOpen(true)
-  }
+  }, [])
+
+  const finalizeSelection = useCallback(() => {
+    if (!isSelecting || !selectionStart) return
+    const end = selectionEnd ?? selectionStart
+    const slots = getRangeSlots(selectionStart, end)
+    const selectedCourt = branchCourts.find((court) => court.id === selectionStart.courtId)
+    if (!selectedCourt || slots.length === 0) {
+      resetSelection()
+      return
+    }
+    if (!slots.every((slot) => isSlotBookable(selectionStart.courtId, slot))) {
+      resetSelection()
+      return
+    }
+    openQuickBookDialog(selectedCourt, slots[0], slots.length)
+    resetSelection()
+  }, [isSelecting, selectionStart, selectionEnd, getRangeSlots, branchCourts, isSlotBookable, openQuickBookDialog, resetSelection])
+
+  useEffect(() => {
+    if (!isSelecting) return
+    const handleWindowMouseUp = () => finalizeSelection()
+    window.addEventListener("mouseup", handleWindowMouseUp)
+    return () => window.removeEventListener("mouseup", handleWindowMouseUp)
+  }, [isSelecting, finalizeSelection])
+
+  useEffect(() => {
+    resetSelection()
+  }, [selectedBranch, scheduleDate, resetSelection])
 
   // Submit quick-book
   const handleQuickBook = async () => {
@@ -748,7 +846,7 @@ function ScheduleView({
           weeks: parseInt(qbWeeks),
           customer_name: qbName.trim(),
           customer_phone: qbPhone.trim(),
-          amount: quickBookSlot.price,
+          amount: quickBookSlot.totalPrice,
           payment_method: qbPayment,
           note: qbNote.trim(),
           ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
@@ -762,7 +860,7 @@ function ScheduleView({
           slots: 1,
           customer_name: qbName.trim(),
           customer_phone: qbPhone.trim(),
-          amount: quickBookSlot.price,
+          amount: quickBookSlot.totalPrice,
           payment_method: qbPayment,
           note: qbNote.trim(),
           ...(qbSelectedUser ? { user_id: qbSelectedUser.id } : {}),
@@ -816,9 +914,11 @@ function ScheduleView({
         <div className="flex items-center gap-4 text-xs">
           <span className="font-medium text-muted-foreground">
             Đặt: <strong className="text-foreground">{stats.bookedSlots}</strong> / {stats.totalSlots}
+            {stats.holdSlots > 0 && <> · Giữ: <strong className="text-amber-600">{stats.holdSlots}</strong></>}
           </span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-green-100 border border-green-300" /> Trống</span>
           <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-primary/20 border border-primary/40" /> Đã đặt</span>
+          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-100 border border-amber-300" /> Giữ chỗ</span>
         </div>
       </div>
 
@@ -857,37 +957,57 @@ function ScheduleView({
                     {branchCourts.map(c => {
                       const cell = scheduleMap[c.id]?.[time]
                       const isBooked = cell?.status === "booked"
-                      const isEmpty = !isBooked
+                      const isHold = cell?.status === "hold"
+                      const isEmpty = !isBooked && !isHold
+                      const bookedByLabel = cell?.bookedBy?.trim() || cell?.phone?.trim() || "Đã đặt"
                       const canBook = isEmpty && !past
+                      const isSelected = selectionPreview.courtId === c.id && selectedSlotSet.has(time)
                       return (
                         <td key={c.id} className="px-1 py-1">
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div
-                                  onClick={canBook ? () => handleSlotClick(c, time) : undefined}
+                                  onMouseDown={canBook ? (e) => {
+                                    e.preventDefault()
+                                    setIsSelecting(true)
+                                    setSelectionStart({ courtId: c.id, time })
+                                    setSelectionEnd({ courtId: c.id, time })
+                                  } : undefined}
+                                  onMouseEnter={canBook && isSelecting && selectionStart?.courtId === c.id ? () => {
+                                    setSelectionEnd({ courtId: c.id, time })
+                                  } : undefined}
+                                  onMouseUp={canBook && isSelecting ? () => finalizeSelection() : undefined}
                                   className={cn(
-                                    "rounded-md px-2 py-1.5 text-center transition-colors min-h-[32px] flex items-center justify-center",
-                                    isEmpty && !past && "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/20 dark:border-green-800 cursor-pointer hover:bg-green-100 hover:border-green-400 hover:shadow-sm",
+                                    "rounded-md px-2 py-1.5 text-center transition-colors min-h-[32px] flex items-center justify-center select-none",
+                                    isEmpty && !past && !isSelected && "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/20 dark:border-green-800 cursor-pointer hover:bg-green-100 hover:border-green-400 hover:shadow-sm",
                                     isEmpty && past && "bg-court-past text-slate-400 border border-slate-200",
+                                    isSelected && "bg-secondary/20 text-secondary border border-secondary/40 ring-1 ring-secondary/40 cursor-pointer",
                                     isBooked && "bg-primary/10 text-primary border border-primary/30 font-medium",
+                                    isHold && "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-800",
                                   )}>
-                                  {isBooked && <span className="truncate max-w-[110px]">{cell.bookedBy || "Đã đặt"}</span>}
+                                  {isBooked && <span className="truncate max-w-[110px]">{bookedByLabel}</span>}
+                                  {isHold && <span className="truncate max-w-[110px]">Giữ chỗ</span>}
                                   {isEmpty && past && <Lock className="h-3 w-3" />}
-                                  {isEmpty && !past && <Plus className="h-3 w-3 opacity-40" />}
+                                  {isEmpty && !past && !isSelected && <Plus className="h-3 w-3 opacity-40" />}
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent>
                                 {isBooked ? (
                                   <div className="text-xs">
-                                    <p className="font-semibold">{cell.bookedBy}</p>
-                                    {cell.bookingId && <p className="text-muted-foreground">Mã: {cell.bookingId}</p>}
+                                    <p className="font-semibold">{bookedByLabel}</p>
+                                    {cell.phone && <p className="text-muted-foreground">SĐT: {cell.phone}</p>}
+                                    {(cell.bookingCode || cell.bookingId) && <p className="text-muted-foreground">Mã: {cell.bookingCode || cell.bookingId}</p>}
                                     <p className="text-muted-foreground">{time} - {endTimeStr}</p>
                                   </div>
+                                ) : isHold ? (
+                                  <p>Đang giữ chỗ</p>
+                                ) : isSelected && isSelecting ? (
+                                  <p>Thả chuột để đặt {selectionPreview.slots.length} giờ</p>
                                 ) : past ? (
                                   <p>Đã qua giờ</p>
                                 ) : (
-                                  <p>Bấm để đặt lịch</p>
+                                  <p>Kéo chuột để bôi đen đặt sân</p>
                                 )}
                               </TooltipContent>
                             </Tooltip>
@@ -929,8 +1049,12 @@ function ScheduleView({
                   <span className="font-medium">{quickBookSlot.time} - {quickBookSlot.timeEnd}</span>
                 </div>
                 <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Thời lượng:</span>
+                  <span className="font-medium">{quickBookSlot.durationHours} giờ</span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Giá:</span>
-                  <span className="font-semibold text-primary">{formatVND(quickBookSlot.price)}</span>
+                  <span className="font-semibold text-primary">{formatVND(quickBookSlot.totalPrice)}</span>
                 </div>
               </div>
 
@@ -1051,7 +1175,7 @@ function ScheduleView({
                     </Select>
                     <p className="text-xs text-muted-foreground">
                       Sẽ tạo {qbWeeks} booking vào {dayNames[scheduleDate.getDay()]} từ {quickBookSlot.time} - {quickBookSlot.timeEnd}.
-                      Tổng: <strong className="text-foreground">{formatVND(quickBookSlot.price * parseInt(qbWeeks))}</strong>
+                      Tổng: <strong className="text-foreground">{formatVND(quickBookSlot.totalPrice * parseInt(qbWeeks))}</strong>
                     </p>
                   </div>
                 )}

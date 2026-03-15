@@ -85,9 +85,9 @@ function DeliveryUpdateDialog() {
 function MiniTimeline({ status }: { status: string }) {
   const steps = [
     { label: "Nhận PO", done: true },
-    { label: "Chuẩn bị", done: status !== "pending" },
-    { label: "Giao hàng", done: status === "in-transit" || status === "delivered" },
-    { label: "Hoàn thành", done: status === "delivered" },
+    { label: "Chuẩn bị", done: status !== "sent" },
+    { label: "Giao hàng", done: status === "shipping" || status === "received" },
+    { label: "Hoàn thành", done: status === "received" },
   ]
 
   return (
@@ -113,6 +113,14 @@ function MiniTimeline({ status }: { status: string }) {
   )
 }
 
+function formatPOCode(raw: any) {
+  if (raw?.po_code) return String(raw.po_code)
+  if (raw?.order_code) return String(raw.order_code)
+  if (raw?.orderCode) return String(raw.orderCode)
+  const normalized = String(raw?.id || "").replace(/-/g, "").toUpperCase()
+  return normalized ? `PO${normalized.slice(0, 8)}` : "PO00000000"
+}
+
 export default function SupplierPortal() {
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
   const [supplierPOs, setSupplierPOs] = useState<any[]>([])
@@ -125,13 +133,14 @@ export default function SupplierPortal() {
         const res = await purchaseOrderApi.getAll()
         if (res.success && res.data) {
           setSupplierPOs(res.data.map((po: any) => ({
-            id: po.orderCode || po.order_code || `PO-${po.id}`,
-            status: po.status || "pending",
+            id: String(po.id || ""),
+            code: formatPOCode(po),
+            status: po.status || "sent",
             createdDate: (po.createdAt || po.created_at || "").split("T")[0],
             totalValue: po.totalAmount || po.total_amount || 0,
             items: (po.items || []).map((item: any) => ({
               name: item.productName || item.product_name || item.name || item.sku,
-              qty: item.quantity || 0,
+              qty: item.qty || item.quantity || 0,
               unitCost: item.price || item.unitPrice || item.unit_price || 0,
             })),
             buyer: "BadmintonHub",
@@ -148,9 +157,9 @@ export default function SupplierPortal() {
     fetchPOs()
   }, [])
 
-  const pendingPOs = supplierPOs.filter(p => p.status === "pending")
-  const inProgressPOs = supplierPOs.filter(p => p.status === "in-transit")
-  const completedPOs = supplierPOs.filter(p => p.status === "delivered")
+  const pendingPOs = supplierPOs.filter(p => p.status === "sent")
+  const inProgressPOs = supplierPOs.filter(p => p.status === "shipping")
+  const completedPOs = supplierPOs.filter(p => p.status === "received")
 
   return (
     <div className="min-h-screen bg-background">
@@ -242,7 +251,7 @@ export default function SupplierPortal() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-mono text-sm text-primary font-semibold">{po.id}</p>
+                          <p className="font-mono text-sm text-primary font-semibold">{po.code}</p>
                           <POStatusBadge status={po.status} />
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">Ngày tạo: {po.createdDate}</p>
@@ -303,7 +312,7 @@ export default function SupplierPortal() {
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-mono text-sm text-primary font-semibold">{po.id}</p>
+                            <p className="font-mono text-sm text-primary font-semibold">{po.code}</p>
                             <POStatusBadge status={po.status} />
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">Ngày giao dự kiến: {po.deliveryDate}</p>
@@ -386,7 +395,7 @@ export default function SupplierPortal() {
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-mono text-sm text-muted-foreground">{po.id}</p>
+                          <p className="font-mono text-sm text-muted-foreground">{po.code}</p>
                           <POStatusBadge status={po.status} />
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">{po.items.length} sản phẩm - {formatVND(po.totalValue)}</p>

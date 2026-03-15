@@ -15,6 +15,15 @@ export function formatVND(amount: number): string {
   return new Intl.NumberFormat('vi-VN').format(amount) + 'đ'
 }
 
+export function formatPOReference(value?: string | null): string {
+  const raw = String(value ?? "").trim()
+  if (!raw) return ""
+  if (/^PO[-A-Z0-9]+$/i.test(raw)) return raw.toUpperCase()
+  const normalized = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()
+  if (!normalized) return raw
+  return `PO${normalized.slice(0, 8)}`
+}
+
 export function generateTimeSlots(): string[] {
   const slots: string[] = []
   for (let h = 6; h < 22; h++) {

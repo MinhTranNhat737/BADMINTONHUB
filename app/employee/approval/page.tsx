@@ -10,25 +10,44 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { formatVND } from "@/lib/utils"
-import { salesOrderApi } from "@/lib/api"
+import { salesOrderApi, inventoryApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import {
   Search, CheckCircle2, XCircle, Clock, Eye, FileText,
   ArrowUpFromLine, Receipt, Package, AlertTriangle, Printer,
-  DollarSign, ShoppingCart
+  DollarSign, ShoppingCart, CreditCard, Banknote, Smartphone
 } from "lucide-react"
 
 /* ─── Types ─── */
 interface CartItem {
   productId: number
+  sku?: string
+  category?: string
   name: string
   price: number
   qty: number
 }
 
+interface WarrantyLine {
+  sku?: string
+  name: string
+  qty: number
+  months: number
+  expiresAt: string
+}
+
+interface WarrantySheet {
+  id: string
+  issuedAt: string
+  customer: string
+  phone: string
+  items: WarrantyLine[]
+}
+
 interface SalesOrder {
   id: string
+  displayCode: string
   date: string
   time: string
   customer: string
@@ -41,6 +60,7 @@ interface SalesOrder {
   note: string
   status: "pending" | "approved" | "rejected" | "exported"
   createdBy: string
+  branchId?: number
   approvedAt?: string
   approvedBy?: string
   rejectedAt?: string
@@ -52,13 +72,15 @@ interface SalesOrder {
 interface ExportSlip {
   id: string
   orderId: string
+  orderCode?: string
   date: string
-  items: { name: string; qty: number; price: number }[]
+  items: { sku?: string; name: string; qty: number; price: number }[]
   total: number
   customer: string
   note: string
   status: "pending" | "completed"
   createdBy: string
+  warranty?: WarrantySheet | null
   completedAt?: string
   completedBy?: string
 }
@@ -75,6 +97,19 @@ const slipStatusConfig: Record<string, { label: string; color: string }> = {
   completed: { label: "Đã xuất", color: "bg-green-100 text-green-800 border-green-200" },
 }
 
+const getWarrantyMonths = (category?: string, name?: string) => {
+  const source = `${category || ""} ${name || ""}`.toLowerCase()
+  if (source.includes("vợt") || source.includes("racket")) return 3
+  if (source.includes("giày") || source.includes("shoe")) return 1
+  return 0
+}
+
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date)
+  d.setMonth(d.getMonth() + months)
+  return d
+}
+
 function StatusBadge({ status }: { status: string }) {
   const cfg = statusConfig[status] || statusConfig.pending
   return <Badge variant="outline" className={cn("gap-1", cfg.color)}>{cfg.icon} {cfg.label}</Badge>
@@ -89,25 +124,89 @@ export default function ApprovalPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [rejectReason, setRejectReason] = useState("")
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null)
+  const [completeDialogSlipId, setCompleteDialogSlipId] = useState<string | null>(null)
+  const [warehouseByBranch, setWarehouseByBranch] = useState<Record<number, number>>({})
+  const [paymentDialogOrder, setPaymentDialogOrder] = useState<SalesOrder | null>(null)
+  const [approvalPaymentMethod, setApprovalPaymentMethod] = useState<"cash" | "vietqr" | "momo" | "bank">("cash")
+  const [approvalPaymentNote, setApprovalPaymentNote] = useState("")
+
+  const paymentMethodOptions: { key: "cash" | "vietqr" | "momo" | "bank"; label: string; icon: React.ReactNode }[] = [
+    { key: "cash", label: "Tiền mặt", icon: <Banknote className="h-4 w-4" /> },
+    { key: "vietqr", label: "VietQR", icon: <CreditCard className="h-4 w-4" /> },
+    { key: "momo", label: "MoMo", icon: <Smartphone className="h-4 w-4" /> },
+    { key: "bank", label: "Chuyển khoản", icon: <DollarSign className="h-4 w-4" /> },
+  ]
+
+  const paymentKeyToLabel = (method: "cash" | "vietqr" | "momo" | "bank") => {
+    if (method === "cash") return "Tiền mặt"
+    if (method === "vietqr") return "VietQR"
+    if (method === "momo") return "MoMo"
+    return "Chuyển khoản"
+  }
+
+  const paymentLabelToKey = (label: string): "cash" | "vietqr" | "momo" | "bank" => {
+    const normalized = String(label || "").toLowerCase()
+    if (normalized.includes("vietqr") || normalized.includes("qr")) return "vietqr"
+    if (normalized.includes("momo")) return "momo"
+    if (normalized.includes("chuyển khoản") || normalized.includes("bank")) return "bank"
+    return "cash"
+  }
 
   // Load from API
   const loadData = async () => {
     try {
       const res = await salesOrderApi.getAll()
       if ((res as any).success && (res as any).data) {
-        setOrders((res as any).data.map((o: any) => ({
-          id: String(o.id), date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
-          time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
-          customer: o.customer_name || "Khách lẻ", phone: o.customer_phone || "",
-          items: (o.items || []).map((i: any) => ({ productId: i.product_id, name: i.product_name || i.name || "", price: i.price || 0, qty: i.qty || i.quantity || 0 })),
-          total: o.amount || 0, discount: 0, finalTotal: o.amount || 0,
-          paymentMethod: o.payment_method || "", note: o.note || "",
-          status: o.status || "pending", createdBy: o.created_by || "",
-          approvedAt: o.approved_at, approvedBy: o.approved_by,
-          rejectedAt: o.rejected_at, rejectedBy: o.rejected_by, rejectReason: o.reject_reason,
-        })))
+        setOrders((res as any).data.map((o: any) => {
+          const items = (o.items || []).map((i: any) => ({
+            productId: i.product_id || 0,
+            sku: i.sku || "",
+            category: i.category || "",
+            name: i.product_name || i.name || "",
+            price: Number(i.price || 0),
+            qty: Number(i.qty || i.quantity || 0),
+          }))
+          const total = Number(o.total ?? items.reduce((sum: number, item: CartItem) => sum + item.price * item.qty, 0))
+          const discount = Number(o.discount ?? 0)
+          const finalTotal = Number(o.final_total ?? (total - discount))
+
+          return {
+            id: String(o.id),
+            displayCode: o.sales_code || `HD-${String(o.id).slice(0, 8).toUpperCase()}`,
+            date: o.created_at ? new Date(o.created_at).toISOString().split("T")[0] : "",
+            time: o.created_at ? new Date(o.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "",
+            customer: o.customer_name || "Khách lẻ",
+            phone: o.customer_phone || "",
+            items,
+            total,
+            discount,
+            finalTotal,
+            paymentMethod: o.payment_method || "",
+            note: o.note || "",
+            status: o.status || "pending",
+            createdBy: o.employee_name || o.created_by_name || o.createdBy || o.created_by || "Nhân viên",
+            branchId: o.branch_id ? Number(o.branch_id) : undefined,
+            approvedAt: o.approved_at,
+            approvedBy: o.approved_by,
+            rejectedAt: o.rejected_at,
+            rejectedBy: o.rejected_by,
+            rejectReason: o.reject_reason,
+          }
+        }))
       }
     } catch {}
+
+    try {
+      const wr: any = await inventoryApi.getWarehouses()
+      if (wr?.success && Array.isArray(wr.data)) {
+        const map: Record<number, number> = {}
+        for (const warehouse of wr.data) {
+          if (warehouse?.branch_id) map[Number(warehouse.branch_id)] = Number(warehouse.id)
+        }
+        setWarehouseByBranch(map)
+      }
+    } catch {}
+
     // Export slips still from localStorage (no backend endpoint)
     try {
       const storedSlips = localStorage.getItem("exportSlips")
@@ -132,7 +231,9 @@ export default function ApprovalPage() {
       if (statusFilter !== "all" && o.status !== statusFilter) return false
       if (search) {
         const q = search.toLowerCase()
-        return o.id.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q)
+        return o.id.toLowerCase().includes(q)
+          || o.displayCode.toLowerCase().includes(q)
+          || o.customer.toLowerCase().includes(q)
       }
       return true
     })
@@ -147,28 +248,66 @@ export default function ApprovalPage() {
     .reduce((s, o) => s + o.finalTotal, 0)
 
   // Approve order → generate export slip
-  const handleApprove = async (order: SalesOrder) => {
+  const handleApprove = async (order: SalesOrder, paymentMethod: "cash" | "vietqr" | "momo" | "bank", paymentNote: string) => {
     try {
-      await salesOrderApi.approve(order.id)
+      await salesOrderApi.approve(order.id, {
+        payment_method: paymentKeyToLabel(paymentMethod),
+        note: paymentNote || order.note || undefined,
+      })
     } catch {}
     const now = new Date()
-    const slipId = `PXK-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(exportSlips.length + 1).padStart(3, "0")}`
+    const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`
+    const sameDaySeq = exportSlips.filter((s) => String(s.id).startsWith(`PXK-${datePart}-`)).length + 1
+    const slipId = `PXK-${datePart}-${String(sameDaySeq).padStart(3, "0")}`
+
+    const warrantyItems = order.items.reduce<WarrantyLine[]>((acc, item) => {
+      const months = getWarrantyMonths(item.category, item.name)
+      if (months <= 0) return acc
+      acc.push({
+        sku: item.sku || undefined,
+        name: item.name,
+        qty: item.qty,
+        months,
+        expiresAt: addMonths(now, months).toISOString().split("T")[0],
+      })
+      return acc
+    }, [])
+
+    const warranty: WarrantySheet | null = warrantyItems.length > 0
+      ? {
+        id: `BH-${slipId.slice(4)}`,
+        issuedAt: now.toISOString().split("T")[0],
+        customer: order.customer,
+        phone: order.phone,
+        items: warrantyItems,
+      }
+      : null
 
     const slip: ExportSlip = {
       id: slipId,
       orderId: order.id,
+      orderCode: order.displayCode,
       date: now.toISOString().split("T")[0],
-      items: order.items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+      items: order.items.map(i => ({ sku: i.sku, name: i.name, qty: i.qty, price: i.price })),
       total: order.finalTotal,
       customer: order.customer,
-      note: `Xuất kho theo đơn ${order.id}`,
+      note: warranty ? `XKDH ${order.displayCode} | PBH ${warranty.id}` : `XKDH ${order.displayCode}`,
       status: "pending",
       createdBy: user?.fullName || "Nhân viên",
+      warranty,
     }
 
     const updatedOrders = orders.map(o =>
       o.id === order.id
-        ? { ...o, status: "approved" as const, approvedAt: now.toISOString(), approvedBy: user?.fullName, exportSlipId: slipId }
+        ? {
+          ...o,
+          status: "approved" as const,
+          approvedAt: now.toISOString(),
+          approvedBy: user?.fullName,
+          exportSlipId: slipId,
+          paymentMethod: paymentKeyToLabel(paymentMethod),
+          note: paymentNote || o.note,
+        }
         : o
     )
 
@@ -176,6 +315,8 @@ export default function ApprovalPage() {
 
     saveOrders(updatedOrders)
     saveSlips(updatedSlips)
+    setPaymentDialogOrder(null)
+    setApprovalPaymentNote("")
   }
 
   // Reject order
@@ -194,8 +335,50 @@ export default function ApprovalPage() {
   }
 
   // Complete export slip → update order status to "exported"
-  const handleCompleteSlip = (slip: ExportSlip) => {
+  const handleCompleteSlip = async (slip: ExportSlip): Promise<boolean> => {
     const now = new Date()
+    const order = orders.find(o =>
+      o.id === slip.orderId
+      || o.displayCode === slip.orderId
+      || (slip.orderCode ? o.displayCode === slip.orderCode : false)
+    )
+    if (!order) return false
+
+    const warehouseId = order.branchId ? warehouseByBranch[order.branchId] : undefined
+    if (!warehouseId) return false
+
+    const resolvedItems: { sku: string; qty: number; name: string; price: number }[] = []
+    for (const item of slip.items) {
+      let sku = item.sku
+
+      if (!sku) {
+        try {
+          const inv: any = await inventoryApi.getAll({ warehouseId, search: item.name })
+          const match = (inv?.data || []).find((invItem: any) => String(invItem?.name || "").toLowerCase() === String(item.name || "").toLowerCase())
+          if (match?.sku) sku = String(match.sku)
+        } catch {}
+      }
+
+      if (!sku) return false
+      resolvedItems.push({ sku, qty: item.qty, name: item.name, price: item.price })
+    }
+
+    for (const item of resolvedItems) {
+      const exported: any = await inventoryApi.exportStock({
+        warehouse_id: warehouseId,
+        sku: item.sku,
+        quantity: item.qty,
+        note: `${slip.id} | ${order.displayCode} | ${user?.fullName || "Nhân viên"}`,
+      })
+      if (!exported?.success) return false
+    }
+
+    try {
+      const completed: any = await salesOrderApi.complete(order.id)
+      if (!completed?.success) return false
+    } catch {
+      return false
+    }
 
     const updatedSlips = exportSlips.map(s =>
       s.id === slip.id
@@ -206,7 +389,7 @@ export default function ApprovalPage() {
 
     // Update linked order
     const updatedOrders = orders.map(o =>
-      o.id === slip.orderId
+      o.id === order.id
         ? { ...o, status: "exported" as const }
         : o
     )
@@ -228,10 +411,18 @@ export default function ApprovalPage() {
       processedBy: user?.fullName,
     }))
     localStorage.setItem("warehouseTransactions", JSON.stringify([...newTxns, ...existingTxns]))
+    return true
   }
 
   const pendingSlips = exportSlips.filter(s => s.status === "pending")
   const completedSlips = exportSlips.filter(s => s.status === "completed")
+  const vietqrUrl = useMemo(() => {
+    if (!paymentDialogOrder) return ""
+    const amount = Math.max(0, Math.round(paymentDialogOrder.finalTotal || 0))
+    const addInfo = encodeURIComponent(`Thanh toan ${paymentDialogOrder.displayCode}`)
+    const accountName = encodeURIComponent("BADMINTONHUB")
+    return `https://img.vietqr.io/image/MB-0363132364-compact2.png?amount=${amount}&addInfo=${addInfo}&accountName=${accountName}`
+  }, [paymentDialogOrder])
 
   return (
     <div>
@@ -355,7 +546,7 @@ export default function ApprovalPage() {
                         "hover:bg-muted/50",
                         order.status === "pending" && "bg-amber-50/30"
                       )}>
-                        <TableCell className="font-mono text-xs text-blue-600 font-semibold">{order.id}</TableCell>
+                        <TableCell className="font-mono text-xs text-blue-600 font-semibold">{order.displayCode}</TableCell>
                         <TableCell className="text-sm">{order.date} {order.time}</TableCell>
                         <TableCell>
                           <p className="text-sm font-medium">{order.customer}</p>
@@ -382,7 +573,7 @@ export default function ApprovalPage() {
                               <DialogContent className="max-w-lg">
                                 <DialogHeader>
                                   <DialogTitle className="font-serif flex items-center gap-2">
-                                    Chi tiết đơn {order.id} <StatusBadge status={order.status} />
+                                    Chi tiết đơn {order.displayCode} <StatusBadge status={order.status} />
                                   </DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-4 mt-2">
@@ -461,42 +652,18 @@ export default function ApprovalPage() {
                             {/* Approve button */}
                             {order.status === "pending" && (
                               <>
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50">
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle className="font-serif">Duyệt đơn hàng {order.id}</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="space-y-3 mt-2">
-                                      <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                        <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-                                        <div className="text-sm">
-                                          <p className="font-medium text-blue-800">Xác nhận duyệt đơn hàng</p>
-                                          <p className="text-xs text-blue-700 mt-1">Sau khi duyệt, hệ thống sẽ tự động tạo <strong>Phiếu xuất kho</strong> cho đơn hàng này.</p>
-                                        </div>
-                                      </div>
-                                      <div className="text-sm space-y-1">
-                                        <p>Khách hàng: <strong>{order.customer}</strong></p>
-                                        <p>Số SP: <strong>{order.items.reduce((s, i) => s + i.qty, 0)}</strong></p>
-                                        <p>Tổng tiền: <strong className="text-primary">{formatVND(order.finalTotal)}</strong></p>
-                                      </div>
-                                    </div>
-                                    <DialogFooter>
-                                      <DialogClose asChild>
-                                        <Button variant="outline">Huỷ</Button>
-                                      </DialogClose>
-                                      <DialogClose asChild>
-                                        <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleApprove(order)}>
-                                          <CheckCircle2 className="h-4 w-4 mr-1" /> Duyệt & Tạo phiếu XK
-                                        </Button>
-                                      </DialogClose>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => {
+                                    setPaymentDialogOrder(order)
+                                    setApprovalPaymentMethod(paymentLabelToKey(order.paymentMethod))
+                                    setApprovalPaymentNote(order.note || "")
+                                  }}
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" />
+                                </Button>
 
                                 {/* Reject button */}
                                 <Dialog>
@@ -507,7 +674,7 @@ export default function ApprovalPage() {
                                   </DialogTrigger>
                                   <DialogContent>
                                     <DialogHeader>
-                                      <DialogTitle className="font-serif">Từ chối đơn hàng {order.id}</DialogTitle>
+                                      <DialogTitle className="font-serif">Từ chối đơn hàng {order.displayCode}</DialogTitle>
                                     </DialogHeader>
                                     <div className="space-y-3 mt-2">
                                       <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
@@ -578,14 +745,26 @@ export default function ApprovalPage() {
                             <Badge variant="outline" className={slipStatusConfig.pending.color}>
                               {slipStatusConfig.pending.label}
                             </Badge>
+                            {slip.warranty && (
+                              <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+                                {slip.warranty.id}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Đơn hàng: <span className="font-mono text-blue-600">{slip.orderId}</span> • Khách: <strong>{slip.customer}</strong> • Ngày: {slip.date}
+                            Đơn hàng: <span className="font-mono text-blue-600">{slip.orderCode || slip.orderId}</span> • Khách: <strong>{slip.customer}</strong> • Ngày: {slip.date}
                           </p>
                         </div>
-                        <Dialog>
+                        <Dialog
+                          open={completeDialogSlipId === slip.id}
+                          onOpenChange={(open) => setCompleteDialogSlipId(open ? slip.id : null)}
+                        >
                           <DialogTrigger asChild>
-                            <Button size="sm" className="bg-orange-600 hover:bg-orange-700 text-white text-xs gap-1">
+                            <Button
+                              size="sm"
+                              className="bg-orange-600 hover:bg-orange-700 text-white text-xs gap-1"
+                              onClick={() => setCompleteDialogSlipId(slip.id)}
+                            >
                               <Package className="h-3.5 w-3.5" /> Xác nhận xuất kho
                             </Button>
                           </DialogTrigger>
@@ -622,16 +801,30 @@ export default function ApprovalPage() {
                                 </Table>
                               </div>
                               <p className="text-sm font-bold text-right">Tổng: <span className="text-primary">{formatVND(slip.total)}</span></p>
+                              {slip.warranty && (
+                                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs space-y-1">
+                                  <p className="font-semibold text-blue-800">Phiếu bảo hành: {slip.warranty.id}</p>
+                                  {slip.warranty.items.map((w, idx) => (
+                                    <p key={`${w.name}-${idx}`} className="text-blue-700">
+                                      {w.name} × {w.qty} • {w.months} tháng • HSD: {w.expiresAt}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <DialogFooter>
                               <DialogClose asChild>
                                 <Button variant="outline">Huỷ</Button>
                               </DialogClose>
-                              <DialogClose asChild>
-                                <Button className="bg-orange-600 hover:bg-orange-700 text-white" onClick={() => handleCompleteSlip(slip)}>
-                                  <CheckCircle2 className="h-4 w-4 mr-1" /> Xác nhận xuất kho
-                                </Button>
-                              </DialogClose>
+                              <Button
+                                className="bg-orange-600 hover:bg-orange-700 text-white"
+                                onClick={async () => {
+                                  const ok = await handleCompleteSlip(slip)
+                                  if (ok) setCompleteDialogSlipId(null)
+                                }}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" /> Xác nhận xuất kho
+                              </Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -644,6 +837,11 @@ export default function ApprovalPage() {
                             {item.name} × {item.qty}
                           </Badge>
                         ))}
+                        {slip.warranty && (
+                          <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-200">
+                            Bảo hành: {slip.warranty.items.length} dòng
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -677,6 +875,7 @@ export default function ApprovalPage() {
                         <TableHead className="text-xs">Khách hàng</TableHead>
                         <TableHead className="text-xs text-center">Số SP</TableHead>
                         <TableHead className="text-xs text-right">Tổng</TableHead>
+                        <TableHead className="text-xs">Bảo hành</TableHead>
                         <TableHead className="text-xs">Trạng thái</TableHead>
                         <TableHead className="text-xs">Người xử lý</TableHead>
                       </TableRow>
@@ -685,11 +884,21 @@ export default function ApprovalPage() {
                       {completedSlips.map(slip => (
                         <TableRow key={slip.id}>
                           <TableCell className="font-mono text-xs text-orange-600 font-semibold">{slip.id}</TableCell>
-                          <TableCell className="font-mono text-xs text-blue-600">{slip.orderId}</TableCell>
+                          <TableCell className="font-mono text-xs text-blue-600">{slip.orderCode || slip.orderId}</TableCell>
                           <TableCell className="text-sm">{slip.date}</TableCell>
                           <TableCell className="text-sm">{slip.customer}</TableCell>
                           <TableCell className="text-center text-sm">{slip.items.reduce((s, i) => s + i.qty, 0)}</TableCell>
                           <TableCell className="text-right text-sm font-semibold">{formatVND(slip.total)}</TableCell>
+                          <TableCell className="text-xs">
+                            {slip.warranty ? (
+                              <div>
+                                <p className="font-medium text-blue-700">{slip.warranty.id}</p>
+                                <p className="text-muted-foreground">{slip.warranty.items.length} dòng</p>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">Không</span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={slipStatusConfig.completed.color}>
                               {slipStatusConfig.completed.label}
@@ -706,6 +915,75 @@ export default function ApprovalPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!paymentDialogOrder} onOpenChange={(open) => { if (!open) setPaymentDialogOrder(null) }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="font-serif flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-blue-600" />
+              Thanh toán đơn {paymentDialogOrder?.displayCode}
+            </DialogTitle>
+          </DialogHeader>
+          {paymentDialogOrder && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Khách hàng</p>
+                  <p className="font-medium">{paymentDialogOrder.customer}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Tổng thanh toán</p>
+                  <p className="font-semibold text-primary">{formatVND(paymentDialogOrder.finalTotal)}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Phương thức thanh toán</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {paymentMethodOptions.map(opt => (
+                    <Button
+                      key={opt.key}
+                      type="button"
+                      variant={approvalPaymentMethod === opt.key ? "default" : "outline"}
+                      className={cn("justify-start", approvalPaymentMethod === opt.key ? "bg-blue-600 hover:bg-blue-700" : "")}
+                      onClick={() => setApprovalPaymentMethod(opt.key)}
+                    >
+                      {opt.icon}
+                      <span className="ml-2">{opt.label}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {approvalPaymentMethod === "vietqr" && (
+                <div className="rounded-lg border p-3 flex justify-center bg-slate-50">
+                  <img src={vietqrUrl} alt="VietQR" className="h-56 w-56 object-contain" />
+                </div>
+              )}
+
+              <div>
+                <p className="text-sm font-medium mb-1">Ghi chú thanh toán</p>
+                <Textarea
+                  rows={3}
+                  value={approvalPaymentNote}
+                  onChange={e => setApprovalPaymentNote(e.target.value)}
+                  placeholder="Nhập ghi chú nếu có..."
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDialogOrder(null)}>Huỷ</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              disabled={!paymentDialogOrder}
+              onClick={() => paymentDialogOrder && handleApprove(paymentDialogOrder, approvalPaymentMethod, approvalPaymentNote)}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" /> Duyệt & Tạo phiếu XK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
