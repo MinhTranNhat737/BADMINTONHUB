@@ -14,6 +14,7 @@ router.post('/hold',        optionalAuth, ctrl.createHold);                     
 router.get('/:id',          authenticate, ctrl.getById);                                      // Auth
 router.post('/',            optionalAuth, ctrl.create);                                       // Khách vãng lai + User
 router.patch('/:id/status', authenticate, authorize('admin', 'employee'), ctrl.updateStatus); // Admin/NV
+router.patch('/:id/services', authenticate, authorize('admin', 'employee'), ctrl.updateServices); // Luu dich vu booking
 router.patch('/:id/confirm-payment', authenticate, authorize('admin', 'employee'), ctrl.confirmPayment); // Xác nhận thanh toán
 router.delete('/:id',       authenticate, authorize('admin','employee'), ctrl.deleteBooking);  // Admin + Employee
 

@@ -4,6 +4,28 @@
 const Booking = require('../models/booking.model');
 const { success, created, paginated } = require('../utils/response');
 
+function buildStaffBookingTag(user) {
+  if (!user || (user.role !== 'admin' && user.role !== 'employee')) return '';
+  const fullName = String(user.full_name || '').trim().replace(/[|\]]/g, '');
+  const username = String(user.username || '').trim().replace(/[|\]]/g, '');
+  return `[BOOKED_BY:${user.role}|${fullName}|${username}]`;
+}
+
+function appendStaffBookingTag(note, user, isBookingForCustomer) {
+  const rawNote = String(note || '').trim();
+  const cleanedNote = rawNote.replace(/\s*\[BOOKED_BY:(admin|employee)(?:\|[^\]]*)?\]\s*/gi, ' ').trim();
+  if (!isBookingForCustomer) return cleanedNote;
+  const tag = buildStaffBookingTag(user);
+  if (!tag) return cleanedNote;
+  return cleanedNote ? `${cleanedNote} ${tag}` : tag;
+}
+
+function isBookingOnBehalf(data, user) {
+  if (!user || (user.role !== 'admin' && user.role !== 'employee')) return false;
+  if (!data.user_id) return false;
+  return String(data.user_id) !== String(user.id);
+}
+
 // GET /api/bookings (admin)
 const getAll = async (req, res, next) => {
   try {
@@ -45,6 +67,7 @@ const create = async (req, res, next) => {
     } else if (req.user) {
       data.user_id = req.user.id;
     }
+    data.note = appendStaffBookingTag(data.note, req.user, isBookingOnBehalf(data, req.user));
 
     // Reject bookings for past time slots
     if (data.booking_date && data.time_start) {
@@ -111,6 +134,7 @@ const createRecurring = async (req, res, next) => {
         } else if (req.user) {
           data.user_id = req.user.id;
         }
+        data.note = appendStaffBookingTag(data.note, req.user, isBookingOnBehalf(data, req.user));
 
         const booking = await Booking.create(data);
         results.push(booking);
@@ -142,11 +166,42 @@ const updateStatus = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// PATCH /api/bookings/:id/services
+const updateServices = async (req, res, next) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ success: false, message: 'Khong tim thay booking' });
+
+    const serviceLines = Array.isArray(req.body?.service_lines) ? req.body.service_lines : [];
+    const normalized = serviceLines.map((line) => ({
+      key: String(line?.key || '').trim(),
+      name: String(line?.name || '').trim(),
+      price: Number(line?.price || 0),
+      qty: Math.max(1, Number(line?.qty || 1)),
+      category: typeof line?.category === 'string' ? line.category : undefined,
+      sku: typeof line?.sku === 'string' ? line.sku : undefined,
+      sourceWarehouseId: Number(line?.sourceWarehouseId || 0) || undefined,
+      sourceWarehouseLabel: typeof line?.sourceWarehouseLabel === 'string' ? line.sourceWarehouseLabel : undefined,
+      sourceIsHub: typeof line?.sourceIsHub === 'boolean' ? line.sourceIsHub : undefined,
+      staffNote: typeof line?.staffNote === 'string' ? line.staffNote : undefined,
+    })).filter((line) => line.key && line.name);
+
+    const updated = await Booking.saveServices(req.params.id, {
+      serviceLines: normalized,
+      paidHash: req.body?.paid_hash || '',
+      paidAt: req.body?.paid_at || '',
+    });
+    if (!updated) return res.status(404).json({ success: false, message: 'Khong tim thay booking' });
+    return success(res, updated, 'Da luu dich vu vao booking');
+  } catch (err) { next(err); }
+};
+
 // POST /api/bookings/hold — Giữ chỗ khi khách đang thanh toán
 const createHold = async (req, res, next) => {
   try {
     const data = { ...req.body, status: 'hold' };
     if (req.user) data.user_id = req.user.id;
+    data.note = appendStaffBookingTag(data.note, req.user, isBookingOnBehalf(data, req.user));
 
     // Reject holds for past time slots
     if (data.booking_date && data.time_start) {
@@ -222,4 +277,4 @@ const checkin = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getAll, getMyBookings, getById, create, createRecurring, createHold, confirmPayment, updateStatus, deleteBooking, checkin };
+module.exports = { getAll, getMyBookings, getById, create, createRecurring, createHold, confirmPayment, updateStatus, updateServices, deleteBooking, checkin };

@@ -1,0 +1,792 @@
+{
+  "generatedAt": "2026-03-23T04:04:16.259Z",
+  "baseUrl": "http://localhost:3000",
+  "routes": [
+    "/",
+    "/admin",
+    "/admin/accounts",
+    "/admin/api-test",
+    "/admin/bookings",
+    "/admin/checkin",
+    "/admin/courts",
+    "/admin/document-audit",
+    "/admin/inventory",
+    "/admin/orders",
+    "/admin/products/import",
+    "/admin/purchase-orders",
+    "/admin/reports",
+    "/booking",
+    "/booking/success",
+    "/courts",
+    "/employee",
+    "/employee/approval",
+    "/employee/bookings",
+    "/employee/checkin",
+    "/employee/court-services",
+    "/employee/courts",
+    "/employee/document-audit",
+    "/employee/inventory",
+    "/employee/orders",
+    "/employee/sales",
+    "/employee/warranty",
+    "/forgot-password",
+    "/hub",
+    "/hub/balance",
+    "/hub/inventory",
+    "/hub/orders",
+    "/hub/transfers",
+    "/login",
+    "/my-bookings",
+    "/register",
+    "/shop",
+    "/shop/checkout",
+    "/shop/order-success",
+    "/supplier"
+  ],
+  "skipped": [
+    "/courts/[id]",
+    "/shop/[id]"
+  ],
+  "report": [
+    {
+      "route": "/",
+      "url": "http://localhost:3000/",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\index.png",
+      "ok": true
+    },
+    {
+      "route": "/admin",
+      "url": "http://localhost:3000/admin",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "url": "http://localhost:3000/admin/accounts",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "profile": "admin",
+      "interaction": "tab:Tất cả",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts__tab-1-tat-ca.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "profile": "admin",
+      "interaction": "tab:Admin",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts__tab-2-admin.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "profile": "admin",
+      "interaction": "tab:Nhân viên",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts__tab-3-nhan-vien.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "profile": "admin",
+      "interaction": "tab:Khách hàng",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts__tab-4-khach-hang.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/accounts",
+      "profile": "admin",
+      "interaction": "tab:Khách vãng lai",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__accounts__tab-5-khach-vang-lai.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "url": "http://localhost:3000/admin/api-test",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "profile": "admin",
+      "interaction": "tab:Search",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test__tab-1-search.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "profile": "admin",
+      "interaction": "tab:Reverse",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test__tab-2-reverse.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "profile": "admin",
+      "interaction": "tab:Routing",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test__tab-3-routing.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "profile": "admin",
+      "interaction": "tab:Traffic",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test__tab-4-traffic.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/api-test",
+      "profile": "admin",
+      "interaction": "tab:Weather",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__api-test__tab-5-weather.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "url": "http://localhost:3000/admin/bookings",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "profile": "admin",
+      "interaction": "tab:Tất cả30",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings__tab-1-tat-ca30.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "profile": "admin",
+      "interaction": "tab:Giữ chỗ0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings__tab-2-giu-cho0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "profile": "admin",
+      "interaction": "tab:Chờ xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings__tab-3-cho-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "profile": "admin",
+      "interaction": "tab:Đã xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings__tab-4-a-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/bookings",
+      "profile": "admin",
+      "interaction": "tab:Đang chơi0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__bookings__tab-5-ang-choi0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/checkin",
+      "url": "http://localhost:3000/admin/checkin",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__checkin.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/courts",
+      "url": "http://localhost:3000/admin/courts",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__courts.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/document-audit",
+      "url": "http://localhost:3000/admin/document-audit",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__document-audit.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "url": "http://localhost:3000/admin/inventory",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "profile": "admin",
+      "interaction": "tab:Tổng quan",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory__tab-1-tong-quan.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "profile": "admin",
+      "interaction": "tab:Nhập kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory__tab-2-nhap-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "profile": "admin",
+      "interaction": "tab:Xuất hàng",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory__tab-3-xuat-hang.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "profile": "admin",
+      "interaction": "tab:Tạo phiếu",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory__tab-4-tao-phieu.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/inventory",
+      "profile": "admin",
+      "interaction": "tab:Điều chuyển",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__inventory__tab-5-ieu-chuyen.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "url": "http://localhost:3000/admin/orders",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "profile": "admin",
+      "interaction": "tab:Tất cả71",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders__tab-1-tat-ca71.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "profile": "admin",
+      "interaction": "tab:Nhập kho14",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders__tab-2-nhap-kho14.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "profile": "admin",
+      "interaction": "tab:Xuất kho18",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders__tab-3-xuat-kho18.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "profile": "admin",
+      "interaction": "tab:Điều chuyển5",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders__tab-4-ieu-chuyen5.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/orders",
+      "profile": "admin",
+      "interaction": "tab:Bán hàng20",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__orders__tab-5-ban-hang20.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/products/import",
+      "url": "http://localhost:3000/admin/products/import",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__products__import.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "url": "http://localhost:3000/admin/purchase-orders",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "profile": "admin",
+      "interaction": "tab:Tất cả14",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders__tab-1-tat-ca14.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "profile": "admin",
+      "interaction": "tab:Nháp0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders__tab-2-nhap0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "profile": "admin",
+      "interaction": "tab:Chờ xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders__tab-3-cho-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "profile": "admin",
+      "interaction": "tab:Đã xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders__tab-4-a-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/purchase-orders",
+      "profile": "admin",
+      "interaction": "tab:Vận chuyển0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__purchase-orders__tab-5-van-chuyen0.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/reports",
+      "url": "http://localhost:3000/admin/reports",
+      "profile": "admin",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__reports.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/reports",
+      "profile": "admin",
+      "interaction": "tab:Doanh Thu",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__reports__tab-1-doanh-thu.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/reports",
+      "profile": "admin",
+      "interaction": "tab:Công Suất Sân",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__reports__tab-2-cong-suat-san.png",
+      "ok": true
+    },
+    {
+      "route": "/admin/reports",
+      "profile": "admin",
+      "interaction": "tab:Tồn Kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\admin__reports__tab-3-ton-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/booking",
+      "url": "http://localhost:3000/booking",
+      "profile": "user",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\booking.png",
+      "ok": true
+    },
+    {
+      "route": "/booking/success",
+      "url": "http://localhost:3000/booking/success",
+      "profile": "user",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\booking__success.png",
+      "ok": true
+    },
+    {
+      "route": "/courts",
+      "url": "http://localhost:3000/courts",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\courts.png",
+      "ok": true
+    },
+    {
+      "route": "/employee",
+      "url": "http://localhost:3000/employee",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/approval",
+      "url": "http://localhost:3000/employee/approval",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__approval.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/approval",
+      "profile": "employee",
+      "interaction": "tab:Đơn hàng",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__approval__tab-1-on-hang.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/approval",
+      "profile": "employee",
+      "interaction": "tab:Phiếu xuất kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__approval__tab-2-phieu-xuat-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "url": "http://localhost:3000/employee/bookings",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "profile": "employee",
+      "interaction": "tab:Tất cả30",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings__tab-1-tat-ca30.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "profile": "employee",
+      "interaction": "tab:Giữ chỗ0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings__tab-2-giu-cho0.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "profile": "employee",
+      "interaction": "tab:Chờ xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings__tab-3-cho-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "profile": "employee",
+      "interaction": "tab:Đã xác nhận0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings__tab-4-a-xac-nhan0.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/bookings",
+      "profile": "employee",
+      "interaction": "tab:Đang chơi0",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__bookings__tab-5-ang-choi0.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/checkin",
+      "url": "http://localhost:3000/employee/checkin",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__checkin.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/court-services",
+      "url": "http://localhost:3000/employee/court-services",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__court-services.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/courts",
+      "url": "http://localhost:3000/employee/courts",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__courts.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/document-audit",
+      "url": "http://localhost:3000/employee/document-audit",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__document-audit.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "url": "http://localhost:3000/employee/inventory",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "profile": "employee",
+      "interaction": "tab:Tổng quan",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory__tab-1-tong-quan.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "profile": "employee",
+      "interaction": "tab:Nhập kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory__tab-2-nhap-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "profile": "employee",
+      "interaction": "tab:Xuất kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory__tab-3-xuat-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "profile": "employee",
+      "interaction": "tab:Điều chuyển",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory__tab-4-ieu-chuyen.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/inventory",
+      "profile": "employee",
+      "interaction": "tab:Phiếu từ Admin",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__inventory__tab-5-phieu-tu-admin.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/orders",
+      "url": "http://localhost:3000/employee/orders",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__orders.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/orders",
+      "profile": "employee",
+      "interaction": "tab:Chờ xử lý",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__orders__tab-1-cho-xu-ly.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/orders",
+      "profile": "employee",
+      "interaction": "tab:Đang xử lý",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__orders__tab-2-ang-xu-ly.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/orders",
+      "profile": "employee",
+      "interaction": "tab:Đang giao",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__orders__tab-3-ang-giao.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/orders",
+      "profile": "employee",
+      "interaction": "tab:Hoàn thành",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__orders__tab-4-hoan-thanh.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/sales",
+      "url": "http://localhost:3000/employee/sales",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__sales.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/sales",
+      "profile": "employee",
+      "interaction": "tab:Bán hàng",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__sales__tab-1-ban-hang.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/sales",
+      "profile": "employee",
+      "interaction": "tab:Danh sách đơn",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__sales__tab-2-danh-sach-on.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/sales",
+      "profile": "employee",
+      "interaction": "tab:Phiếu xuất kho",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__sales__tab-3-phieu-xuat-kho.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/sales",
+      "profile": "employee",
+      "interaction": "tab:Lịch sử bán",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__sales__tab-4-lich-su-ban.png",
+      "ok": true
+    },
+    {
+      "route": "/employee/warranty",
+      "url": "http://localhost:3000/employee/warranty",
+      "profile": "employee",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\employee__warranty.png",
+      "ok": true
+    },
+    {
+      "route": "/forgot-password",
+      "url": "http://localhost:3000/forgot-password",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\forgot-password.png",
+      "ok": true
+    },
+    {
+      "route": "/hub",
+      "url": "http://localhost:3000/hub",
+      "profile": "hub",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/balance",
+      "url": "http://localhost:3000/hub/balance",
+      "profile": "hub",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__balance.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/inventory",
+      "url": "http://localhost:3000/hub/inventory",
+      "profile": "hub",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__inventory.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/orders",
+      "url": "http://localhost:3000/hub/orders",
+      "profile": "hub",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__orders.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/orders",
+      "profile": "hub",
+      "interaction": "tab:Chờ duyệt",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__orders__tab-1-cho-duyet.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/orders",
+      "profile": "hub",
+      "interaction": "tab:Đang xử lý",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__orders__tab-2-ang-xu-ly.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/orders",
+      "profile": "hub",
+      "interaction": "tab:Đang giao",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__orders__tab-3-ang-giao.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/orders",
+      "profile": "hub",
+      "interaction": "tab:Hoàn thành",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__orders__tab-4-hoan-thanh.png",
+      "ok": true
+    },
+    {
+      "route": "/hub/transfers",
+      "url": "http://localhost:3000/hub/transfers",
+      "profile": "hub",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\hub__transfers.png",
+      "ok": true
+    },
+    {
+      "route": "/login",
+      "url": "http://localhost:3000/login",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\login.png",
+      "ok": true
+    },
+    {
+      "route": "/my-bookings",
+      "url": "http://localhost:3000/my-bookings",
+      "profile": "user",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\my-bookings.png",
+      "ok": true
+    },
+    {
+      "route": "/my-bookings",
+      "profile": "user",
+      "interaction": "tab:Sắp tới (0)",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\my-bookings__tab-1-sap-toi-0.png",
+      "ok": true
+    },
+    {
+      "route": "/my-bookings",
+      "profile": "user",
+      "interaction": "tab:Hoàn thành (0)",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\my-bookings__tab-2-hoan-thanh-0.png",
+      "ok": true
+    },
+    {
+      "route": "/my-bookings",
+      "profile": "user",
+      "interaction": "tab:Đã huỷ (0)",
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\my-bookings__tab-3-a-huy-0.png",
+      "ok": true
+    },
+    {
+      "route": "/register",
+      "url": "http://localhost:3000/register",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\register.png",
+      "ok": true
+    },
+    {
+      "route": "/shop",
+      "url": "http://localhost:3000/shop",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\shop.png",
+      "ok": true
+    },
+    {
+      "route": "/shop/checkout",
+      "url": "http://localhost:3000/shop/checkout",
+      "profile": "user",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\shop__checkout.png",
+      "ok": true
+    },
+    {
+      "route": "/shop/order-success",
+      "url": "http://localhost:3000/shop/order-success",
+      "profile": "user",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\shop__order-success.png",
+      "ok": true
+    },
+    {
+      "route": "/supplier",
+      "url": "http://localhost:3000/supplier",
+      "profile": "anonymous",
+      "status": 200,
+      "file": "screenshots\\2026-03-23T04-02-13-932Z\\supplier.png",
+      "ok": true
+    }
+  ]
+}

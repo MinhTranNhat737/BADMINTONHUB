@@ -9,17 +9,20 @@ const { success, paginated, created } = require('../utils/response');
 const getAll = async (req, res, next) => {
   try {
     const { role, search, page = 1, limit = 20 } = req.query;
+    const safeSearch = typeof search === 'string' ? search.trim() : '';
+    const safePage = Number.isFinite(Number(page)) ? Math.max(1, parseInt(page, 10)) : 1;
+    const safeLimit = Number.isFinite(Number(limit)) ? Math.max(1, parseInt(limit, 10)) : 20;
     const result = await User.findAll({
       role: role || undefined,
-      search: search || undefined,
-      page: parseInt(page),
-      limit: parseInt(limit),
+      search: safeSearch || undefined,
+      page: safePage,
+      limit: safeLimit,
     });
     return paginated(res, {
       data: result.data,
       total: result.total,
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: safePage,
+      limit: safeLimit,
     });
   } catch (err) { next(err); }
 };

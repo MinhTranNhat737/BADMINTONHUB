@@ -4,6 +4,7 @@
 const router = require('express').Router();
 const ctrl   = require('../controllers/user.controller');
 const { authenticate } = require('../middlewares/auth.middleware');
+const { authorize } = require('../middlewares/role.middleware');
 
 // Tất cả route yêu cầu đăng nhập + role admin
 const adminOnly = (req, res, next) => {
@@ -13,8 +14,8 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-router.get('/',                 authenticate, adminOnly, ctrl.getAll);
-router.get('/:id',              authenticate, adminOnly, ctrl.getById);
+router.get('/',                 authenticate, authorize('admin', 'employee'), ctrl.getAll);
+router.get('/:id',              authenticate, authorize('admin', 'employee'), ctrl.getById);
 router.post('/',                authenticate, adminOnly, ctrl.create);
 router.put('/:id',              authenticate, adminOnly, ctrl.update);
 router.put('/:id/password',     authenticate, adminOnly, ctrl.resetPassword);

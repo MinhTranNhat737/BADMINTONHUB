@@ -13,6 +13,7 @@ router.get('/:id',            authenticate, authorize('admin', 'employee'), ctrl
 router.post('/',              authenticate, authorize('admin', 'employee'), ctrl.create);
 router.patch('/:id/approve',  authenticate, authorize('admin', 'employee'), ctrl.approve);
 router.patch('/:id/reject',   authenticate, authorize('admin', 'employee'), ctrl.reject);
+router.patch('/:id/confirm-payment', authenticate, authorize('admin', 'employee'), ctrl.confirmPayment);
 router.patch('/:id/complete', authenticate, authorize('admin', 'employee'), ctrl.complete);
 
 module.exports = router;

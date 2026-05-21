@@ -147,8 +147,7 @@ const create = async (req, res, next) => {
 const approve = async (req, res, next) => {
   try {
     const { payment_method, note } = req.body || {};
-    const order = await SalesOrder.updateStatus(req.params.id, {
-      status: 'approved',
+    const order = await SalesOrder.approve(req.params.id, {
       approved_by: req.user.id,
       payment_method,
       note
@@ -162,8 +161,7 @@ const approve = async (req, res, next) => {
 const reject = async (req, res, next) => {
   try {
     const { reject_reason } = req.body;
-    const order = await SalesOrder.updateStatus(req.params.id, {
-      status: 'rejected',
+    const order = await SalesOrder.reject(req.params.id, {
       approved_by: req.user.id,
       reject_reason
     });
@@ -172,10 +170,25 @@ const reject = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// PATCH /api/sales-orders/:id/confirm-payment
+const confirmPayment = async (req, res, next) => {
+  try {
+    const { payment_method, note } = req.body || {};
+    const order = await SalesOrder.confirmPayment(req.params.id, {
+      confirmed_by: req.user.id,
+      payment_method,
+      note,
+    });
+    if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn bán' });
+    return success(res, order, 'Xác nhận thanh toán thành công');
+  } catch (err) { next(err); }
+};
+
 // PATCH /api/sales-orders/:id/complete
 const complete = async (req, res, next) => {
   try {
-    const order = await SalesOrder.updateStatus(req.params.id, { status: 'exported' });
+    const { note } = req.body || {};
+    const order = await SalesOrder.complete(req.params.id, { note });
     if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn bán' });
     return success(res, order, 'Hoàn thành đơn thành công');
   } catch (err) { next(err); }
@@ -189,5 +202,6 @@ module.exports = {
   create,
   approve,
   reject,
+  confirmPayment,
   complete,
 };

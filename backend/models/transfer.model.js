@@ -20,9 +20,30 @@ const Transfer = {
                  JOIN warehouses wt ON wt.id = tr.to_warehouse_id
                  JOIN users u ON u.id = tr.created_by
                  WHERE ${where.join(' AND ')}
-                 ORDER BY tr.created_at DESC`;
+                 ORDER BY tr.date DESC, tr.id DESC`;
     const result = await query(sql, values);
-    return result.rows;
+
+    const transfers = result.rows;
+    if (transfers.length === 0) return transfers;
+
+    const transferIds = transfers.map((item) => item.id);
+    const itemRows = await query(
+      `SELECT * FROM transfer_items WHERE transfer_id = ANY($1::uuid[]) ORDER BY id ASC`,
+      [transferIds]
+    );
+
+    const itemMap = new Map();
+    for (const row of itemRows.rows) {
+      const key = String(row.transfer_id);
+      if (!itemMap.has(key)) itemMap.set(key, []);
+      itemMap.get(key).push(row);
+    }
+
+    for (const transfer of transfers) {
+      transfer.items = itemMap.get(String(transfer.id)) || [];
+    }
+
+    return transfers;
   },
 
   findById: async (id) => {

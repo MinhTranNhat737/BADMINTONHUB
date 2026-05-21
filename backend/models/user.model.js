@@ -3,6 +3,18 @@
 // ═══════════════════════════════════════════════════════════════
 const { query } = require('../config/database');
 
+const VN_ACCENT_SOURCE = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+const VN_ACCENT_TARGET = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd';
+
+function normalizeForSearch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .trim();
+}
+
 const User = {
   // Tìm theo ID
   findById: async (id) => {
@@ -124,15 +136,38 @@ const User = {
     let where = ['TRUE'];
     const values = [];
     let idx = 1;
+    const searchKeyword = String(search || '').trim();
 
     if (role) {
       where.push(`role = $${idx++}`);
       values.push(role);
     }
-    if (search) {
-      where.push(`(username ILIKE $${idx} OR full_name ILIKE $${idx} OR email ILIKE $${idx} OR phone ILIKE $${idx} OR user_code ILIKE $${idx})`);
-      values.push(`%${search}%`);
-      idx++;
+    if (searchKeyword) {
+      const fuzzyLike = `%${searchKeyword}%`;
+      const normalizedLike = `%${normalizeForSearch(searchKeyword)}%`;
+      const phoneDigits = searchKeyword.replace(/\D/g, '');
+
+      const conditions = [
+        `username ILIKE $${idx}`,
+        `full_name ILIKE $${idx}`,
+        `email ILIKE $${idx}`,
+        `phone ILIKE $${idx}`,
+        `user_code ILIKE $${idx}`,
+        `translate(lower(COALESCE(username, '')), '${VN_ACCENT_SOURCE}', '${VN_ACCENT_TARGET}') LIKE $${idx + 1}`,
+        `translate(lower(COALESCE(full_name, '')), '${VN_ACCENT_SOURCE}', '${VN_ACCENT_TARGET}') LIKE $${idx + 1}`,
+        `translate(lower(COALESCE(email, '')), '${VN_ACCENT_SOURCE}', '${VN_ACCENT_TARGET}') LIKE $${idx + 1}`,
+      ];
+
+      values.push(fuzzyLike, normalizedLike);
+      idx += 2;
+
+      if (phoneDigits) {
+        conditions.push(`regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $${idx}`);
+        values.push(`%${phoneDigits}%`);
+        idx += 1;
+      }
+
+      where.push(`(${conditions.join(' OR ')})`);
     }
 
     const whereClause = where.join(' AND ');

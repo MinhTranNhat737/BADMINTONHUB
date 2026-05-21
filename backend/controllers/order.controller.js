@@ -43,8 +43,12 @@ const create = async (req, res, next) => {
 // PATCH /api/orders/:id/status (admin)
 const updateStatus = async (req, res, next) => {
   try {
-    const { status } = req.body;
-    const order = await Order.updateStatus(req.params.id, status, req.user?.id);
+    const { status, fulfilling_warehouse } = req.body;
+    const order = await Order.updateStatus(req.params.id, {
+      status,
+      approved_by: req.user?.id,
+      fulfilling_warehouse: fulfilling_warehouse || null,
+    });
     if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
     return success(res, order, 'Cập nhật trạng thái thành công');
   } catch (err) { next(err); }

@@ -3,6 +3,34 @@
 // ═══════════════════════════════════════════════════════════════
 const { query, getClient } = require('../config/database');
 
+function formatOnlineOrderCode(id, createdAt) {
+  const createdDate = createdAt ? new Date(createdAt) : new Date();
+  const safeDate = Number.isNaN(createdDate.getTime()) ? new Date() : createdDate;
+  const yy = String(safeDate.getFullYear()).slice(2);
+  const mm = String(safeDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(safeDate.getDate()).padStart(2, '0');
+
+  const normalized = String(id || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const tailHex = normalized.slice(-8);
+  let seq = Number.parseInt(tailHex, 16);
+  if (!Number.isFinite(seq)) {
+    seq = 0;
+    for (const ch of normalized) {
+      seq = (seq * 31 + ch.charCodeAt(0)) % 10000;
+    }
+  }
+
+  return `HD-${yy}${mm}${dd}-${String(Math.abs(seq) % 10000).padStart(4, '0')}`;
+}
+
+function withOrderCode(order) {
+  if (!order) return order;
+  return {
+    ...order,
+    order_code: formatOnlineOrderCode(order.id, order.created_at),
+  };
+}
+
 const Order = {
   // Lấy danh sách đơn (admin)
   findAll: async ({ status, userId, page = 1, limit = 20 } = {}) => {
@@ -27,7 +55,7 @@ const Order = {
     values.push(limit, (page - 1) * limit);
 
     const result = await query(sql, values);
-    return { data: result.rows, total };
+    return { data: result.rows.map(withOrderCode), total };
   },
 
   // Lấy 1 đơn kèm items
@@ -39,7 +67,7 @@ const Order = {
     const result = await query(sql, [id]);
     if (result.rows.length === 0) return null;
 
-    const order = result.rows[0];
+    const order = withOrderCode(result.rows[0]);
     const items = await query(
       `SELECT oi.*, p.sku, p.brand FROM order_items oi
        JOIN products p ON p.id = oi.product_id
@@ -53,7 +81,7 @@ const Order = {
   findByUser: async (userId) => {
     const sql = `SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC`;
     const result = await query(sql, [userId]);
-    return result.rows;
+    return result.rows.map(withOrderCode);
   },
 
   // Tạo đơn (transaction)
@@ -75,7 +103,7 @@ const Order = {
         customer_name, customer_phone, customer_email, customer_address,
         note, subtotal, shipping_fee || 0, total, payment_method]);
 
-      const order = result.rows[0];
+      const order = withOrderCode(result.rows[0]);
 
       // Thêm items
       for (const item of items) {
@@ -97,11 +125,15 @@ const Order = {
   },
 
   // Cập nhật trạng thái
-  updateStatus: async (id, status, approved_by = null) => {
-    const sql = `UPDATE orders SET status = $1, approved_by = COALESCE($2, approved_by), updated_at = NOW()
-                 WHERE id = $3 RETURNING *`;
-    const result = await query(sql, [status, approved_by, id]);
-    return result.rows[0] || null;
+  updateStatus: async (id, { status, approved_by = null, fulfilling_warehouse = null } = {}) => {
+    const sql = `UPDATE orders
+                 SET status = $1,
+                     approved_by = COALESCE($2, approved_by),
+                     fulfilling_warehouse = COALESCE($3, fulfilling_warehouse),
+                     updated_at = NOW()
+                 WHERE id = $4 RETURNING *`;
+    const result = await query(sql, [status, approved_by, fulfilling_warehouse, id]);
+    return withOrderCode(result.rows[0]) || null;
   }
 };
 

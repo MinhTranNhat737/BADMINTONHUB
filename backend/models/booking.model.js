@@ -3,6 +3,71 @@
 // ═══════════════════════════════════════════════════════════════
 const { query, getClient } = require('../config/database');
 
+let bookingsColumnCache = null;
+let bookingServicesTableReady = false;
+
+async function getBookingsColumnSet(dbQuery) {
+  if (bookingsColumnCache) return bookingsColumnCache;
+  const result = await dbQuery(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'bookings'`
+  );
+  bookingsColumnCache = new Set(result.rows.map((row) => row.column_name));
+  return bookingsColumnCache;
+}
+
+async function ensureBookingServicesTable(dbQuery = query) {
+  if (bookingServicesTableReady) return;
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS booking_services (
+      booking_id uuid PRIMARY KEY REFERENCES bookings(id) ON DELETE CASCADE,
+      service_lines jsonb NOT NULL DEFAULT '[]'::jsonb,
+      paid_hash text NULL,
+      paid_at timestamptz NULL,
+      created_at timestamptz NOT NULL DEFAULT NOW(),
+      updated_at timestamptz NOT NULL DEFAULT NOW()
+    )
+  `);
+  bookingServicesTableReady = true;
+}
+
+async function attachServicesToRows(rows, dbQuery = query) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  await ensureBookingServicesTable(dbQuery);
+  const bookingIds = rows.map((row) => row.id).filter(Boolean);
+  if (bookingIds.length === 0) return rows;
+
+  const result = await dbQuery(
+    `SELECT booking_id, service_lines, paid_hash, paid_at
+     FROM booking_services
+     WHERE booking_id = ANY($1::uuid[])`,
+    [bookingIds]
+  );
+
+  const serviceMap = new Map(
+    result.rows.map((row) => [
+      String(row.booking_id),
+      {
+        service_lines: Array.isArray(row.service_lines) ? row.service_lines : [],
+        service_paid_hash: row.paid_hash || null,
+        service_paid_at: row.paid_at || null,
+      },
+    ])
+  );
+
+  return rows.map((row) => {
+    const serviceData = serviceMap.get(String(row.id));
+    return {
+      ...row,
+      service_lines: serviceData?.service_lines || [],
+      service_paid_hash: serviceData?.service_paid_hash || null,
+      service_paid_at: serviceData?.service_paid_at || null,
+    };
+  });
+}
+
 const Booking = {
   // Lấy danh sách booking (admin — có filter)
   findAll: async ({ status, branchId, courtId, date, phone, page = 1, limit = 20 } = {}) => {
@@ -23,40 +88,47 @@ const Booking = {
     const total = parseInt(countResult.rows[0].count);
 
     // Data
-    let sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name
+    let sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name,
+              u.role AS booked_by_role, u.full_name AS booked_by_name, u.username AS booked_by_username
                FROM bookings bk
                JOIN courts c ON c.id = bk.court_id
                JOIN branches br ON br.id = bk.branch_id
+           LEFT JOIN users u ON u.id = bk.user_id
                WHERE ${whereClause}
                ORDER BY bk.booking_date DESC, bk.time_start`;
     sql += ` LIMIT $${idx} OFFSET $${idx + 1}`;
     values.push(limit, (page - 1) * limit);
 
     const result = await query(sql, values);
-    return { data: result.rows, total };
+    return { data: await attachServicesToRows(result.rows), total };
   },
 
   // Lấy 1 booking
   findById: async (id) => {
-    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name
+    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name,
+              u.role AS booked_by_role, u.full_name AS booked_by_name, u.username AS booked_by_username
                  FROM bookings bk
                  JOIN courts c ON c.id = bk.court_id
                  JOIN branches br ON br.id = bk.branch_id
+           LEFT JOIN users u ON u.id = bk.user_id
                  WHERE bk.id = $1`;
     const result = await query(sql, [id]);
-    return result.rows[0] || null;
+    const rows = await attachServicesToRows(result.rows);
+    return rows[0] || null;
   },
 
   // Lấy bookings của 1 user
   findByUser: async (userId) => {
-    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name
+    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name,
+              u.role AS booked_by_role, u.full_name AS booked_by_name, u.username AS booked_by_username
                  FROM bookings bk
                  JOIN courts c ON c.id = bk.court_id
                  JOIN branches br ON br.id = bk.branch_id
+           LEFT JOIN users u ON u.id = bk.user_id
                  WHERE bk.user_id = $1
                  ORDER BY bk.booking_date DESC, bk.time_start`;
     const result = await query(sql, [userId]);
-    return result.rows;
+    return attachServicesToRows(result.rows);
   },
 
   // Tạo booking mới (dùng transaction)
@@ -65,8 +137,23 @@ const Booking = {
     try {
       await client.query('BEGIN');
 
-      const { court_id, user_id, booking_date, time_start, time_end,
-              people = 1, amount, payment_method, customer_name, customer_phone, customer_email, status = 'confirmed' } = data;
+      const {
+        court_id,
+        user_id,
+        booking_date,
+        time_start,
+        time_end,
+        people,
+        slots,
+        amount,
+        payment_method,
+        customer_name,
+        customer_phone,
+        customer_email,
+        note,
+        status = 'confirmed'
+      } = data;
+      const peopleCount = Number(people ?? slots ?? 1) || 1;
 
       // Tự động tính day_label từ booking_date nếu frontend không gửi (vd: "4/3")
       let day_label = data.day_label;
@@ -118,12 +205,52 @@ const Booking = {
       const seq = String(parseInt(countRes.rows[0].cnt) + 1).padStart(2, '0');
       const booking_code = `MB-${dd}${mm}${yy}-${hh}-${khCode}${seq}`;
 
-      // Tạo booking
-      const sql = `INSERT INTO bookings (court_id, branch_id, user_id, booking_date, day_label, time_start, time_end,
-                   people, amount, payment_method, customer_name, customer_phone, customer_email, status, booking_code)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`;
-      const result = await client.query(sql, [court_id, branch_id, user_id, booking_date, day_label,
-        time_start, time_end, people, amount, payment_method, customer_name, customer_phone, customer_email, status, booking_code]);
+      const bookingColumns = await getBookingsColumnSet((sqlText, params) => client.query(sqlText, params));
+      const insertColumns = [
+        'court_id',
+        'branch_id',
+        'user_id',
+        'booking_date',
+        'day_label',
+        'time_start',
+        'time_end',
+        'people',
+        'amount',
+        'payment_method',
+        'customer_name',
+        'customer_phone',
+        'customer_email',
+        'status',
+      ];
+      const insertValues = [
+        court_id,
+        branch_id,
+        user_id,
+        booking_date,
+        day_label,
+        time_start,
+        time_end,
+        peopleCount,
+        amount,
+        payment_method,
+        customer_name,
+        customer_phone,
+        customer_email,
+        status,
+      ];
+
+      if (bookingColumns.has('note')) {
+        insertColumns.push('note');
+        insertValues.push(note || null);
+      }
+      if (bookingColumns.has('booking_code')) {
+        insertColumns.push('booking_code');
+        insertValues.push(booking_code);
+      }
+
+      const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(', ');
+      const sql = `INSERT INTO bookings (${insertColumns.join(', ')}) VALUES (${placeholders}) RETURNING *`;
+      const result = await client.query(sql, insertValues);
 
       // Trigger trg_book_court_slot sẽ tự tạo court_slots nếu status = 'confirmed'
       // Nếu status = 'hold', tạo court_slots thủ công với status = 'hold'
@@ -196,16 +323,61 @@ const Booking = {
     }
   },
 
+  updateNote: async (id, note) => {
+    const bookingColumns = await getBookingsColumnSet(query);
+    if (!bookingColumns.has('note')) {
+      const booking = await Booking.findById(id);
+      if (!booking) return null;
+      return booking;
+    }
+
+    const result = await query(
+      `UPDATE bookings
+       SET note = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [note || null, id]
+    );
+
+    if (!result.rows[0]) return null;
+    return Booking.findById(id);
+  },
+
+  saveServices: async (bookingId, { serviceLines, paidHash, paidAt }) => {
+    await ensureBookingServicesTable();
+    const result = await query(
+      `INSERT INTO booking_services (booking_id, service_lines, paid_hash, paid_at, updated_at)
+       VALUES ($1, $2::jsonb, $3, $4, NOW())
+       ON CONFLICT (booking_id) DO UPDATE
+       SET service_lines = EXCLUDED.service_lines,
+           paid_hash = EXCLUDED.paid_hash,
+           paid_at = EXCLUDED.paid_at,
+           updated_at = NOW()
+       RETURNING booking_id`,
+      [
+        bookingId,
+        JSON.stringify(Array.isArray(serviceLines) ? serviceLines : []),
+        paidHash || null,
+        paidAt || null,
+      ]
+    );
+    if (!result.rows[0]) return null;
+    return Booking.findById(bookingId);
+  },
+
   // Xoá các hold đã hết hạn (> 10 phút)
   expireHolds: async () => {
     const client = await getClient();
     try {
       await client.query('BEGIN');
-      // Tìm các booking hold đã quá 10 phút
-      const expired = await client.query(
-        `SELECT id, booking_code FROM bookings
+      const bookingColumns = await getBookingsColumnSet((sqlText, params) => client.query(sqlText, params));
+      const expireSelect = bookingColumns.has('booking_code')
+        ? `SELECT id, booking_code FROM bookings
          WHERE status = 'hold' AND created_at < NOW() - INTERVAL '10 minutes'`
-      );
+        : `SELECT id FROM bookings
+         WHERE status = 'hold' AND created_at < NOW() - INTERVAL '10 minutes'`;
+      // Tìm các booking hold đã quá 10 phút
+      const expired = await client.query(expireSelect);
       for (const row of expired.rows) {
         await client.query(`DELETE FROM court_slots WHERE booking_id = $1`, [row.id]);
         await client.query(`UPDATE bookings SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [row.id]);
@@ -246,22 +418,32 @@ const Booking = {
 
   // Tìm booking theo booking_code
   findByCode: async (code) => {
-    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name
+    const bookingColumns = await getBookingsColumnSet(query);
+    const whereByCode = bookingColumns.has('booking_code')
+      ? 'bk.booking_code = $1'
+      : 'bk.id::text = $1';
+    const sql = `SELECT bk.*, c.name AS court_name, br.name AS branch_name,
+              u.role AS booked_by_role, u.full_name AS booked_by_name, u.username AS booked_by_username
                  FROM bookings bk
                  JOIN courts c ON c.id = bk.court_id
                  JOIN branches br ON br.id = bk.branch_id
-                 WHERE bk.booking_code = $1`;
+           LEFT JOIN users u ON u.id = bk.user_id
+                 WHERE ${whereByCode}`;
     const result = await query(sql, [code]);
     return result.rows[0] || null;
   },
 
   // Tự động hoàn thành các booking đang chơi đã hết giờ
   autoComplete: async () => {
+    const bookingColumns = await getBookingsColumnSet(query);
+    const returningFields = bookingColumns.has('booking_code')
+      ? 'id, booking_code, time_end'
+      : 'id, time_end';
     const sql = `UPDATE bookings
                  SET status = 'completed', updated_at = NOW()
                  WHERE status = 'playing'
                    AND booking_date + time_end::interval <= NOW()
-                 RETURNING id, booking_code, time_end`;
+                 RETURNING ${returningFields}`;
     const result = await query(sql);
     return result.rows;
   }
